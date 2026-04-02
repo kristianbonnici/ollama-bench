@@ -1,0 +1,12 @@
+You are helping with Python backend development.
+
+Task:
+Write a production-quality FastAPI endpoint for GET /users/{user_id}.
+
+Requirements:
+- Use Pydantic response models
+- Return 404 if user not found
+- Include type hints
+- Separate router and service logic clearly
+- Add concise comments
+- Output only code

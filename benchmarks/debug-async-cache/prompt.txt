@@ -1,0 +1,77 @@
+You are an expert Python developer performing a code review.
+
+Task:
+The following Python code has multiple bugs. Find all bugs, explain each one briefly, and provide the corrected code.
+
+```python
+import asyncio
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class CacheEntry:
+    key: str
+    value: any
+    ttl: int
+    created_at: float
+
+class AsyncCache:
+    def __init__(self, max_size: int = 100):
+        self._store: dict[str, CacheEntry] = {}
+        self._max_size = max_size
+        self._lock = asyncio.Lock()
+        self._hits = 0
+        self._misses = 0
+
+    async def get(self, key: str) -> Optional[any]:
+        async with self._lock:
+            if key in self._store:
+                entry = self._store[key]
+                if asyncio.get_event_loop().time() - entry.created_at > entry.ttl:
+                    del self._store[key]
+                    self._misses =+ 1
+                    return None
+                self._hits =+ 1
+                return entry.value
+            self._misses =+ 1
+            return None
+
+    async def set(self, key: str, value: any, ttl: int = 60):
+        async with self._lock:
+            if len(self._store) >= self._max_size and key not in self._store:
+                oldest_key = min(self._store, key=lambda k: self._store[k].created_at)
+                del self._store[oldest_key]
+            self._store[key] = CacheEntry(
+                key=key,
+                value=value,
+                ttl=ttl,
+                created_at=asyncio.get_event_loop().time()
+            )
+
+    async def delete(self, key: str) -> bool:
+        if key in self._store:
+            del self._store[key]
+            return True
+        return False
+
+    @property
+    def stats(self) -> dict:
+        total = self._hits + self._misses
+        return {
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": self._hits / total,
+            "size": len(self._store),
+        }
+
+    async def clear(self):
+        self._store.clear()
+        self._hits = 0
+        self._misses = 0
+```
+
+Requirements:
+- Identify ALL bugs (there are at least 5)
+- For each bug: state the line, the issue, and the fix
+- Provide the complete corrected code at the end
+- Output only the analysis and corrected code, no preamble

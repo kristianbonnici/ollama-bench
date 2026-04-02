@@ -1,0 +1,279 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# ── Defaults ───────────────────────────────────────────────────
+OLLAMA_URL="http://localhost:11434/api/chat"
+DEFAULT_SEED=42
+DEFAULT_TEMPERATURE=0
+DEFAULT_NUM_PREDICT=600
+DEFAULT_NUM_CTX=8192
+DEFAULT_ITERATIONS=3
+
+BENCHMARKS_DIR="$SCRIPT_DIR/benchmarks"
+RESULTS_DIR="$SCRIPT_DIR/results"
+
+# ── Usage / List ───────────────────────────────────────────────
+
+usage() {
+  cat <<EOF
+Usage: $0 [options] <model> [model2 ...]
+
+Options:
+  -b, --bench <name>       Run a specific benchmark (folder name under benchmarks/).
+                            If omitted, all benchmarks are run.
+  -n, --iterations <N>     Number of timed runs per model (default: $DEFAULT_ITERATIONS).
+      --no-warmup          Skip the warmup run (not recommended).
+  -l, --list               List available benchmarks and exit.
+  -h, --help               Show this help message.
+
+Examples:
+  $0 qwen3.5:35b-a3b
+  $0 -n 5 qwen3.5:35b-a3b qwen3.5:35b-a3b-coding-nvfp4
+  $0 -b fastapi-endpoint qwen3.5:35b-a3b
+  $0 --list
+EOF
+  exit "${1:-0}"
+}
+
+list_benchmarks() {
+  echo "Available benchmarks:"
+  for dir in "$BENCHMARKS_DIR"/*/; do
+    [[ -d "$dir" ]] || continue
+    local name preview
+    name="$(basename "$dir")"
+    preview="$(head -c 80 "$dir/prompt.txt" 2>/dev/null)" || preview="(no prompt.txt)"
+    echo "  • $name  —  ${preview}…"
+  done
+  exit 0
+}
+
+# ── Helpers ────────────────────────────────────────────────────
+
+warmup_model() {
+  local model="$1"
+  echo "    ⏳ Warming up (loading model into memory)..."
+  local response
+  response="$(curl -s "$OLLAMA_URL" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n --arg model "$model" '{
+      model: $model,
+      messages: [{ role: "user", content: "hi" }],
+      stream: false,
+      keep_alive: "5m",
+      options: { num_predict: 1 }
+    }')")"
+
+  if echo "$response" | jq -e '.error' >/dev/null 2>&1; then
+    echo "    ✗ Warmup failed: $(echo "$response" | jq -r '.error')"
+    return 1
+  fi
+  echo "    ✓ Model loaded"
+}
+
+unload_model() {
+  local model="$1"
+  curl -s "$OLLAMA_URL" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n --arg model "$model" '{
+      model: $model,
+      messages: [{ role: "user", content: "." }],
+      stream: false,
+      keep_alive: "0s",
+      options: { num_predict: 1 }
+    }')" > /dev/null 2>&1 || true
+}
+
+run_bench() {
+  local model="$1" prompt="$2" output="$3"
+  local seed="$4" temp="$5" predict="$6" ctx="$7"
+
+  curl -s "$OLLAMA_URL" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n \
+      --arg model "$model" \
+      --arg prompt "$prompt" \
+      --argjson seed "$seed" \
+      --argjson temp "$temp" \
+      --argjson predict "$predict" \
+      --argjson ctx "$ctx" \
+      '{
+        model: $model,
+        messages: [{ role: "user", content: $prompt }],
+        stream: false,
+        think: false,
+        keep_alive: "5m",
+        options: {
+          seed: $seed,
+          temperature: $temp,
+          num_predict: $predict,
+          num_ctx: $ctx
+        }
+      }')" > "$output"
+}
+
+compute_summary() {
+  local out_dir="$1"
+
+  jq -s '
+    def stats(f):
+      [.[] | f] | sort | {
+        min:    .[0],
+        max:    .[-1],
+        mean:   (add / length),
+        median: (
+          if length == 1 then .[0]
+          elif length % 2 == 0
+            then (.[length/2 - 1] + .[length/2]) / 2
+            else .[((length - 1) / 2)]
+          end
+        )
+      };
+
+    {
+      iterations:              length,
+      eval_tokens_per_sec:     stats(.eval_count / (.eval_duration / 1e9)),
+      prompt_eval_tokens_per_sec: stats(.prompt_eval_count / (.prompt_eval_duration / 1e9)),
+      eval_duration_sec:       stats(.eval_duration / 1e9),
+      prompt_eval_duration_sec: stats(.prompt_eval_duration / 1e9),
+      load_duration_sec:       stats(.load_duration / 1e9),
+      total_duration_sec:      stats(.total_duration / 1e9),
+      avg_eval_count:          ([.[] | .eval_count] | add / length),
+      avg_prompt_eval_count:   ([.[] | .prompt_eval_count] | add / length)
+    }
+  ' "$out_dir"/run_*.json > "$out_dir/summary.json"
+}
+
+print_summary() {
+  local summary="$1"
+
+  echo ""
+  echo "    ┌────────────────────────┬────────────┬────────────┬────────────┬────────────┐"
+  echo "    │ Metric                 │        Min │     Median │       Mean │        Max │"
+  echo "    ├────────────────────────┼────────────┼────────────┼────────────┼────────────┤"
+
+  jq -r '
+    def fmt: . * 100 | round / 100;
+    def row(label; obj):
+      "    │ \(label)│ \(obj.min | fmt | tostring | ("          " + .)[-10:]) │ \(obj.median | fmt | tostring | ("          " + .)[-10:]) │ \(obj.mean | fmt | tostring | ("          " + .)[-10:]) │ \(obj.max | fmt | tostring | ("          " + .)[-10:]) │";
+
+    row("Eval tok/s              "; .eval_tokens_per_sec),
+    row("Prompt eval tok/s       "; .prompt_eval_tokens_per_sec),
+    row("Eval time (s)           "; .eval_duration_sec),
+    row("Prompt eval time (s)    "; .prompt_eval_duration_sec),
+    row("Load time (s)           "; .load_duration_sec),
+    row("Total time (s)          "; .total_duration_sec)
+  ' "$summary"
+
+  echo "    └────────────────────────┴────────────┴────────────┴────────────┴────────────┘"
+  echo ""
+}
+
+# ── Parse arguments ────────────────────────────────────────────
+BENCH_FILTER=""
+ITERATIONS="$DEFAULT_ITERATIONS"
+DO_WARMUP=true
+MODELS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -b|--bench)      BENCH_FILTER="$2"; shift 2 ;;
+    -n|--iterations) ITERATIONS="$2"; shift 2 ;;
+    --no-warmup)     DO_WARMUP=false; shift ;;
+    -l|--list)       list_benchmarks ;;
+    -h|--help)       usage 0 ;;
+    -*)              echo "Unknown option: $1"; usage 1 ;;
+    *)               MODELS+=("$1"); shift ;;
+  esac
+done
+
+[[ ${#MODELS[@]} -eq 0 ]] && { echo "Error: no model(s) specified."; usage 1; }
+
+# ── Collect benchmarks to run ──────────────────────────────────
+BENCHMARKS=()
+if [[ -n "$BENCH_FILTER" ]]; then
+  bdir="$BENCHMARKS_DIR/$BENCH_FILTER"
+  [[ -d "$bdir" ]] || { echo "Error: benchmark '$BENCH_FILTER' not found."; exit 1; }
+  BENCHMARKS+=("$bdir")
+else
+  for dir in "$BENCHMARKS_DIR"/*/; do
+    [[ -d "$dir" ]] && BENCHMARKS+=("$dir")
+  done
+fi
+
+[[ ${#BENCHMARKS[@]} -eq 0 ]] && { echo "No benchmarks found in $BENCHMARKS_DIR/"; exit 1; }
+
+# ── Run ────────────────────────────────────────────────────────
+for BENCH_DIR in "${BENCHMARKS[@]}"; do
+  BENCH_NAME="$(basename "$BENCH_DIR")"
+  PROMPT_FILE="$BENCH_DIR/prompt.txt"
+
+  [[ -f "$PROMPT_FILE" ]] || { echo "⚠  Skipping '$BENCH_NAME': no prompt.txt"; continue; }
+
+  # Reset to defaults, then apply per-benchmark overrides
+  SEED="$DEFAULT_SEED"
+  TEMPERATURE="$DEFAULT_TEMPERATURE"
+  NUM_PREDICT="$DEFAULT_NUM_PREDICT"
+  NUM_CTX="$DEFAULT_NUM_CTX"
+
+  CONFIG_FILE="$BENCH_DIR/config.json"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    val="$(jq -r '.seed // empty' "$CONFIG_FILE" 2>/dev/null)";       [[ -n "$val" ]] && SEED="$val"
+    val="$(jq -r '.temperature // empty' "$CONFIG_FILE" 2>/dev/null)"; [[ -n "$val" ]] && TEMPERATURE="$val"
+    val="$(jq -r '.num_predict // empty' "$CONFIG_FILE" 2>/dev/null)"; [[ -n "$val" ]] && NUM_PREDICT="$val"
+    val="$(jq -r '.num_ctx // empty' "$CONFIG_FILE" 2>/dev/null)";     [[ -n "$val" ]] && NUM_CTX="$val"
+  fi
+
+  PROMPT="$(cat "$PROMPT_FILE")"
+
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════════════"
+  echo "  Benchmark : $BENCH_NAME"
+  echo "  Iterations: $ITERATIONS  (warmup: $DO_WARMUP)"
+  echo "  Options   : seed=$SEED temp=$TEMPERATURE predict=$NUM_PREDICT ctx=$NUM_CTX"
+  echo "═══════════════════════════════════════════════════════════════════════"
+
+  for MODEL in "${MODELS[@]}"; do
+    SAFE_NAME="${MODEL//:/_}"
+    SAFE_NAME="${SAFE_NAME//\//-}"
+    OUT_DIR="$RESULTS_DIR/$BENCH_NAME/$SAFE_NAME"
+    mkdir -p "$OUT_DIR"
+
+    # Clean previous runs
+    rm -f "$OUT_DIR"/run_*.json "$OUT_DIR/summary.json"
+
+    echo ""
+    echo "  ▸ $MODEL"
+    echo "  ──────────────────────────────────────────────"
+
+    # Warmup: load model into VRAM before timed runs
+    if [[ "$DO_WARMUP" == true ]]; then
+      warmup_model "$MODEL"
+    fi
+
+    # Timed runs (model stays loaded via keep_alive: 5m)
+    for i in $(seq 1 "$ITERATIONS"); do
+      OUTPUT_FILE="$OUT_DIR/run_${i}.json"
+
+      run_bench "$MODEL" "$PROMPT" "$OUTPUT_FILE" \
+        "$SEED" "$TEMPERATURE" "$NUM_PREDICT" "$NUM_CTX"
+
+      # Show per-run stats
+      eval_tps="$(jq -r '.eval_count / (.eval_duration / 1e9) | . * 100 | round / 100' "$OUTPUT_FILE" 2>/dev/null || echo "?")"
+      total_s="$(jq -r '.total_duration / 1e9 | . * 100 | round / 100' "$OUTPUT_FILE" 2>/dev/null || echo "?")"
+      echo "    Run $i/$ITERATIONS  │  ${eval_tps} tok/s  │  ${total_s}s total"
+    done
+
+    # Unload model to free VRAM for the next one
+    echo "    ⏏ Unloading model..."
+    unload_model "$MODEL"
+
+    # Compute & display summary
+    compute_summary "$OUT_DIR"
+    print_summary "$OUT_DIR/summary.json"
+  done
+done
+
+echo ""
+echo "All results saved to $RESULTS_DIR/"
