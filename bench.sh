@@ -49,6 +49,54 @@ list_benchmarks() {
   exit 0
 }
 
+# ── System Info ────────────────────────────────────────────────
+
+get_system_info() {
+  local chip mem_bytes mem_gb os_ver ollama_ver hostname_str
+
+  if [[ "$(uname)" == "Darwin" ]]; then
+    chip="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "unknown")"
+    mem_bytes="$(sysctl -n hw.memsize 2>/dev/null || echo "0")"
+    mem_gb="$(( mem_bytes / 1073741824 ))"  # bytes → GB
+    os_ver="macOS $(sw_vers -productVersion 2>/dev/null || echo "?")"
+  else
+    chip="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs || echo "unknown")"
+    mem_bytes="$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2 * 1024}' || echo "0")"
+    mem_gb="$(( mem_bytes / 1073741824 ))"
+    os_ver="$(uname -sr)"
+  fi
+
+  hostname_str="$(hostname -s 2>/dev/null || echo "unknown")"
+  ollama_ver="$(ollama --version 2>/dev/null | awk '{print $NF}' || echo "unknown")"
+
+  SYSTEM_INFO_JSON="$(jq -n \
+    --arg chip "$chip" \
+    --argjson mem_gb "$mem_gb" \
+    --arg os "$os_ver" \
+    --arg ollama "$ollama_ver" \
+    --arg hostname "$hostname_str" \
+    '{
+      chip: $chip,
+      memory_gb: $mem_gb,
+      os: $os,
+      ollama_version: $ollama,
+      hostname: $hostname
+    }'
+  )"
+}
+
+print_system_info() {
+  echo "┌─────────────────────────────────────────────────────────────────────┐"
+  echo "│  System Info                                                      │"
+  echo "├─────────────────────────────────────────────────────────────────────┤"
+  printf "│  %-66s│\n" "Chip:    $(echo "$SYSTEM_INFO_JSON" | jq -r '.chip')"
+  printf "│  %-66s│\n" "Memory:  $(echo "$SYSTEM_INFO_JSON" | jq -r '.memory_gb')GB"
+  printf "│  %-66s│\n" "OS:      $(echo "$SYSTEM_INFO_JSON" | jq -r '.os')"
+  printf "│  %-66s│\n" "Ollama:  $(echo "$SYSTEM_INFO_JSON" | jq -r '.ollama_version')"
+  printf "│  %-66s│\n" "Host:    $(echo "$SYSTEM_INFO_JSON" | jq -r '.hostname')"
+  echo "└─────────────────────────────────────────────────────────────────────┘"
+}
+
 # ── Helpers ────────────────────────────────────────────────────
 
 warmup_model() {
@@ -116,7 +164,7 @@ run_bench() {
 compute_summary() {
   local out_dir="$1"
 
-  jq -s '
+  jq -s --argjson sys "$SYSTEM_INFO_JSON" '
     def stats(f):
       [.[] | f] | sort | {
         min:    .[0],
@@ -132,6 +180,7 @@ compute_summary() {
       };
 
     {
+      system:                  $sys,
       iterations:              length,
       eval_tokens_per_sec:     stats(.eval_count / (.eval_duration / 1e9)),
       prompt_eval_tokens_per_sec: stats(.prompt_eval_count / (.prompt_eval_duration / 1e9)),
@@ -203,6 +252,11 @@ else
 fi
 
 [[ ${#BENCHMARKS[@]} -eq 0 ]] && { echo "No benchmarks found in $BENCHMARKS_DIR/"; exit 1; }
+
+# ── Detect system ──────────────────────────────────────────────
+get_system_info
+echo ""
+print_system_info
 
 # ── Run ────────────────────────────────────────────────────────
 for BENCH_DIR in "${BENCHMARKS[@]}"; do
