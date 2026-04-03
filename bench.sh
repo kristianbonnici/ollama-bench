@@ -109,6 +109,7 @@ setup_ollama_urls() {
   fi
   OLLAMA_CHAT_URL="${OLLAMA_BASE_URL}/chat"
   OLLAMA_TAGS_URL="${OLLAMA_BASE_URL}/tags"
+  OLLAMA_SHOW_URL="${OLLAMA_BASE_URL}/show"
 }
 
 validate_models() {
@@ -146,6 +147,33 @@ cleanup() {
 }
 
 trap cleanup INT TERM
+
+get_model_metadata() {
+  local model="$1"
+  local show_response
+  show_response="$(curl -s -m 5 "$OLLAMA_SHOW_URL" -H "Content-Type: application/json" -d "$(jq -n --arg name "$model" '{name: $name}')" 2>/dev/null)"
+  
+  # Ensure we have valid JSON back, defaulting to "unknown" on failure
+  MODEL_META_JSON="$(echo "$show_response" | jq '{
+    parameter_size: (.details.parameter_size // "unknown"),
+    quantization_level: (.details.quantization_level // "unknown"),
+    family: (.details.family // "unknown"),
+    format: (.details.format // "unknown"),
+    context_length: (
+      if has("model_info") and (.model_info | type == "object") then
+        [(.model_info | to_entries[]? | select(.key | endswith(".context_length")) | .value)][0] // "unknown"
+      else "unknown" end
+    ),
+    capabilities: (.capabilities // [])
+  }' 2>/dev/null || echo '{
+    "parameter_size": "unknown", 
+    "quantization_level": "unknown", 
+    "family": "unknown", 
+    "format": "unknown", 
+    "context_length": "unknown", 
+    "capabilities": []
+  }')"
+}
 
 warmup_model() {
   local model="$1"
@@ -211,8 +239,9 @@ run_bench() {
 
 compute_summary() {
   local out_dir="$1"
+  local meta_json="$2"
 
-  jq -s --argjson sys "$SYSTEM_INFO_JSON" '
+  jq -s --argjson sys "$SYSTEM_INFO_JSON" --argjson meta "$meta_json" '
     def stats(f):
       [.[] | f] | sort | {
         min:    .[0],
@@ -229,6 +258,7 @@ compute_summary() {
 
     {
       system:                  $sys,
+      model_info:              $meta,
       iterations:              length,
       eval_tokens_per_sec:     stats(.eval_count / (.eval_duration / 1e9)),
       prompt_eval_tokens_per_sec: stats(.prompt_eval_count / (.prompt_eval_duration / 1e9)),
@@ -352,6 +382,22 @@ for BENCH_DIR in "${BENCHMARKS[@]}"; do
 
     echo ""
     echo "  ▸ $MODEL"
+    get_model_metadata "$MODEL"
+    
+    size="$(echo "$MODEL_META_JSON" | jq -r '.parameter_size')"
+    quant="$(echo "$MODEL_META_JSON" | jq -r '.quantization_level')"
+    format="$(echo "$MODEL_META_JSON" | jq -r '.format')"
+    family="$(echo "$MODEL_META_JSON" | jq -r '.family')"
+    
+    ctx_len="$(echo "$MODEL_META_JSON" | jq -r '.context_length')"
+    if [[ "$ctx_len" =~ ^[0-9]+$ ]]; then
+      ctx_len="$(( ctx_len / 1024 ))k"
+    fi
+    
+    caps="$(echo "$MODEL_META_JSON" | jq -r 'if type == "object" and has("capabilities") and (.capabilities | length > 0) then .capabilities | join(", ") else "none" end')"
+    
+    echo "    Info: $size parameters, $quant quantization ($format)"
+    echo "    Architecture: $family  │  Context: $ctx_len  │  Features: $caps"
     echo "  ──────────────────────────────────────────────"
 
     # Warmup: load model into VRAM before timed runs
@@ -378,7 +424,7 @@ for BENCH_DIR in "${BENCHMARKS[@]}"; do
     CURRENT_MODEL=""
 
     # Compute & display summary
-    compute_summary "$OUT_DIR"
+    compute_summary "$OUT_DIR" "$MODEL_META_JSON"
     print_summary "$OUT_DIR/summary.json"
   done
 done
