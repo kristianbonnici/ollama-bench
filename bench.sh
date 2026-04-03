@@ -66,7 +66,8 @@ get_system_info() {
     os_ver="$(uname -sr)"
   fi
 
-  hostname_str="$(hostname -s 2>/dev/null || echo "unknown")"
+  # Use a safe default for hostname to prevent leaking MAC addresses or personal info
+  hostname_str="${BENCH_HOST:-local-machine}"
   ollama_ver="$(ollama --version 2>/dev/null | awk '{print $NF}' || echo "unknown")"
 
   SYSTEM_INFO_JSON="$(jq -n \
@@ -204,8 +205,8 @@ print_summary() {
 
   jq -r '
     def fmt: . * 100 | round / 100;
-    def row(label; obj):
-      "    │ \(label)│ \(obj.min | fmt | tostring | ("          " + .)[-10:]) │ \(obj.median | fmt | tostring | ("          " + .)[-10:]) │ \(obj.mean | fmt | tostring | ("          " + .)[-10:]) │ \(obj.max | fmt | tostring | ("          " + .)[-10:]) │";
+    def row(lbl; obj):
+      "    │ \(lbl)│ \(obj.min | fmt | tostring | ("          " + .)[-10:]) │ \(obj.median | fmt | tostring | ("          " + .)[-10:]) │ \(obj.mean | fmt | tostring | ("          " + .)[-10:]) │ \(obj.max | fmt | tostring | ("          " + .)[-10:]) │";
 
     row("Eval tok/s              "; .eval_tokens_per_sec),
     row("Prompt eval tok/s       "; .prompt_eval_tokens_per_sec),
