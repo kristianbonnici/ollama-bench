@@ -35,13 +35,13 @@ The reports compute min, median, mean, and max. In practice, median is usually t
 
 These are rules of thumb, not hard guarantees. Different models can feel faster or slower than the same `tok/s` number suggests depending on prompt length, backend, hardware, and whether the model fully fits in VRAM.
 
-| Speed (tok/s) | Experience Level | Best Suited For |
-|:--|:--|:--|
-| `< 5` | Background | Offline batch processing or running massive models overnight. Usually too slow for interactive use. |
-| `5 - 10` | Bare Minimum | Roughly around human reading speed. Usable, but you will feel the model thinking and wait for outputs to finish. |
-| `15 - 30` | Good / Comfortable | Interactive chat, standard Q&A, and general reading. The model usually stays ahead of you. |
-| `40 - 60` | Very Fast | Coding tasks, iterative drafting, debugging loops, and brainstorming where you want fast regenerate cycles. |
-| `100+` | Agentic / Real-Time | Automated agents, RAG pipelines, and real-time voice or translation style workloads. |
+| Speed (tok/s) | Experience Level    | Best Suited For                                                                                                  |
+| :------------ | :------------------ | :--------------------------------------------------------------------------------------------------------------- |
+| `< 5`         | Background          | Offline batch processing or running massive models overnight. Usually too slow for interactive use.              |
+| `5 - 10`      | Bare Minimum        | Roughly around human reading speed. Usable, but you will feel the model thinking and wait for outputs to finish. |
+| `15 - 30`     | Good / Comfortable  | Interactive chat, standard Q&A, and general reading. The model usually stays ahead of you.                       |
+| `40 - 60`     | Very Fast           | Coding tasks, iterative drafting, debugging loops, and brainstorming where you want fast regenerate cycles.      |
+| `100+`        | Agentic / Real-Time | Automated agents, RAG pipelines, and real-time voice or translation style workloads.                             |
 
 Treat these bands as "how it tends to feel" rather than "how every model always behaves."
 
