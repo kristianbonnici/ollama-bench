@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Defaults ───────────────────────────────────────────────────
-OLLAMA_URL="http://localhost:11434/api/chat"
+OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
 DEFAULT_SEED=42
 DEFAULT_TEMPERATURE=0
 DEFAULT_NUM_PREDICT=600
@@ -21,6 +21,7 @@ usage() {
 Usage: $0 [options] <model> [model2 ...]
 
 Options:
+      --host <url>         Ollama host (default: 127.0.0.1:11434, respects OLLAMA_HOST).
   -b, --bench <name>       Run a specific benchmark (folder name under benchmarks/).
                             If omitted, all benchmarks are run.
   -n, --iterations <N>     Number of timed runs per model (default: $DEFAULT_ITERATIONS).
@@ -100,6 +101,38 @@ print_system_info() {
 
 # ── Helpers ────────────────────────────────────────────────────
 
+setup_ollama_urls() {
+  if [[ "$OLLAMA_HOST" != http* ]]; then
+    OLLAMA_BASE_URL="http://${OLLAMA_HOST}/api"
+  else
+    OLLAMA_BASE_URL="${OLLAMA_HOST}/api"
+  fi
+  OLLAMA_CHAT_URL="${OLLAMA_BASE_URL}/chat"
+  OLLAMA_TAGS_URL="${OLLAMA_BASE_URL}/tags"
+}
+
+validate_models() {
+  echo "  📡 Connecting to Ollama at $OLLAMA_HOST..."
+  local tags_response available_models
+  
+  if ! tags_response="$(curl -s -m 5 "$OLLAMA_TAGS_URL" 2>/dev/null)"; then
+    echo "  ✗ Error: Could not connect to Ollama at $OLLAMA_HOST"
+    exit 1
+  fi
+
+  available_models="$(echo "$tags_response" | jq -r '.models[].name' 2>/dev/null || true)"
+
+  for m in "${MODELS[@]}"; do
+    # Check exact match or match with :latest
+    if ! echo "$available_models" | grep -F -x -q "$m" && ! echo "$available_models" | grep -F -x -q "${m}:latest"; then
+      echo "  ✗ Error: Model '$m' not found on Ollama server. Run: ollama pull $m"
+      exit 1
+    fi
+  done
+  echo "  ✓ All requested models are available locally."
+  echo ""
+}
+
 CURRENT_MODEL=""
 
 cleanup() {
@@ -118,7 +151,7 @@ warmup_model() {
   local model="$1"
   echo "    ⏳ Warming up (loading model into memory)..."
   local response
-  response="$(curl -s "$OLLAMA_URL" \
+  response="$(curl -s "$OLLAMA_CHAT_URL" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg model "$model" '{
       model: $model,
@@ -137,7 +170,7 @@ warmup_model() {
 
 unload_model() {
   local model="$1"
-  curl -s "$OLLAMA_URL" \
+  curl -s "$OLLAMA_CHAT_URL" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg model "$model" '{
       model: $model,
@@ -152,7 +185,7 @@ run_bench() {
   local model="$1" prompt="$2" output="$3"
   local seed="$4" temp="$5" predict="$6" ctx="$7"
 
-  curl -s "$OLLAMA_URL" \
+  curl -s "$OLLAMA_CHAT_URL" \
     -H "Content-Type: application/json" \
     -d "$(jq -n \
       --arg model "$model" \
@@ -242,6 +275,7 @@ MODELS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --host)          OLLAMA_HOST="$2"; shift 2 ;;
     -b|--bench)      BENCH_FILTER="$2"; shift 2 ;;
     -n|--iterations) ITERATIONS="$2"; shift 2 ;;
     --no-warmup)     DO_WARMUP=false; shift ;;
@@ -267,6 +301,9 @@ else
 fi
 
 [[ ${#BENCHMARKS[@]} -eq 0 ]] && { echo "No benchmarks found in $BENCHMARKS_DIR/"; exit 1; }
+
+setup_ollama_urls
+validate_models
 
 # ── Detect system ──────────────────────────────────────────────
 get_system_info
