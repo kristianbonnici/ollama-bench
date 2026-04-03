@@ -25,6 +25,8 @@ Options:
   -b, --bench <name>       Run a specific benchmark (folder name under benchmarks/).
                             If omitted, all benchmarks are run.
   -n, --iterations <N>     Number of timed runs per model (default: $DEFAULT_ITERATIONS).
+  -r, --report <target>    Generate a Markdown report from cached JSON results.
+                            Use 'all' for a global summary or a benchmark name.
       --no-warmup          Skip the warmup run (not recommended).
   -l, --list               List available benchmarks and exit.
   -h, --help               Show this help message.
@@ -33,6 +35,7 @@ Examples:
   $0 qwen3.5:35b-a3b
   $0 -n 5 qwen3.5:35b-a3b qwen3.5:35b-a3b-coding-nvfp4
   $0 -b fastapi-endpoint qwen3.5:35b-a3b
+  $0 --report all
   $0 --list
 EOF
   exit "${1:-0}"
