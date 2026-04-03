@@ -100,6 +100,20 @@ print_system_info() {
 
 # ── Helpers ────────────────────────────────────────────────────
 
+CURRENT_MODEL=""
+
+cleanup() {
+  echo ""
+  echo "🚨 Script interrupted. Cleaning up..."
+  if [[ -n "${CURRENT_MODEL:-}" ]]; then
+    echo "    ⏏ Emergency unload: $CURRENT_MODEL"
+    unload_model "$CURRENT_MODEL"
+  fi
+  exit 1
+}
+
+trap cleanup INT TERM
+
 warmup_model() {
   local model="$1"
   echo "    ⏳ Warming up (loading model into memory)..."
@@ -290,6 +304,7 @@ for BENCH_DIR in "${BENCHMARKS[@]}"; do
   echo "═══════════════════════════════════════════════════════════════════════"
 
   for MODEL in "${MODELS[@]}"; do
+    CURRENT_MODEL="$MODEL"
     SAFE_NAME="${MODEL//:/_}"
     SAFE_NAME="${SAFE_NAME//\//-}"
     OUT_DIR="$RESULTS_DIR/$BENCH_NAME/$SAFE_NAME"
@@ -323,6 +338,7 @@ for BENCH_DIR in "${BENCHMARKS[@]}"; do
     # Unload model to free VRAM for the next one
     echo "    ⏏ Unloading model..."
     unload_model "$MODEL"
+    CURRENT_MODEL=""
 
     # Compute & display summary
     compute_summary "$OUT_DIR"
