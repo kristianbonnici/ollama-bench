@@ -297,17 +297,249 @@ print_summary() {
   echo ""
 }
 
+generate_markdown_report() {
+  local target_bench="$1"
+  local timestamp
+  timestamp="$(date +%Y%m%d_%H%M%S)"
+  local report_file
+  
+  if [[ "$target_bench" == "all" ]]; then
+    report_file="$RESULTS_DIR/report-global-summary_${timestamp}.md"
+    echo "  Generating global summary report at $report_file..."
+  else
+    report_file="$RESULTS_DIR/report-${target_bench}_${timestamp}.md"
+    echo "  Generating report for '$target_bench' at $report_file..."
+  fi
+
+  # Find available summary files depending on mode
+  local summary_files=()
+  if [[ "$target_bench" == "all" ]]; then
+    while IFS= read -r f; do [[ -n "$f" ]] && summary_files+=("$f"); done < <(find "$RESULTS_DIR" -maxdepth 3 -type f -name "summary.json" | sort)
+  else
+    while IFS= read -r f; do [[ -n "$f" ]] && summary_files+=("$f"); done < <(find "$RESULTS_DIR/$target_bench" -maxdepth 2 -type f -name "summary.json" 2>/dev/null | sort)
+  fi
+
+  if [[ ${#summary_files[@]} -eq 0 ]]; then
+    echo "  ⚠ No summary.json files found to generate report."
+    return 1
+  fi
+
+  # Get system info from the first file
+  local sys_info chip memory_gb os_str ollama hostname_str
+  sys_info="$(jq -r '.system' "${summary_files[0]}")"
+  chip="$(echo "$sys_info" | jq -r '.chip')"
+  memory_gb="$(echo "$sys_info" | jq -r '.memory_gb')"
+  os_str="$(echo "$sys_info" | jq -r '.os')"
+  ollama="$(echo "$sys_info" | jq -r '.ollama_version')"
+  hostname_str="$(echo "$sys_info" | jq -r '.hostname')"
+  local gen_date
+  gen_date="$(date '+%Y-%m-%d %H:%M')"
+
+  # Write Header
+  cat <<EOF > "$report_file"
+# Benchmark Report
+
+> **Generated:** $gen_date
+> **System:** $hostname_str • $chip • ${memory_gb}GB • $os_str • Ollama $ollama
+
+EOF
+
+  # If "all", get unique benchmark names
+  local benches=()
+  if [[ "$target_bench" == "all" ]]; then
+    for f in "${summary_files[@]}"; do
+      benches+=("$(basename "$(dirname "$(dirname "$f")")")")
+    done
+    local unique_benches=()
+    while IFS= read -r b_name; do 
+      [[ -n "$b_name" ]] && unique_benches+=("$b_name")
+    done < <(printf "%s\n" "${benches[@]}" | sort -u)
+    benches=("${unique_benches[@]}")
+  else
+    benches=("$target_bench")
+  fi
+
+  # ── Ranked Leaderboard (only for "all" or multiple models) ──
+  if [[ "$target_bench" == "all" && ${#benches[@]} -gt 0 ]]; then
+    # Collect unique models and compute avg tok/s and avg total time
+    local all_models=()
+    for f in "${summary_files[@]}"; do
+      model_name="$(basename "$(dirname "$f")" | sed 's/_/:/g')"
+      all_models+=("$model_name")
+    done
+    local unique_models=()
+    while IFS= read -r m; do
+      [[ -n "$m" ]] && unique_models+=("$m")
+    done < <(printf "%s\n" "${all_models[@]}" | sort -u)
+
+    # Build leaderboard data: model|params|quant|avg_toks|avg_time
+    local leaderboard_lines=()
+    for m in "${unique_models[@]}"; do
+      safe_m="$(echo "$m" | sed 's/:/_/g' | sed 's/\//-/g')"
+      tok_sum="0"
+      time_sum="0"
+      count="0"
+      m_params=""
+      m_quant=""
+      for f in "${summary_files[@]}"; do
+        if [[ "$(basename "$(dirname "$f")")" == "$safe_m" ]]; then
+          tok_val="$(jq -r '.eval_tokens_per_sec.median' "$f")"
+          time_val="$(jq -r '.total_duration_sec.median' "$f")"
+          tok_sum="$(echo "$tok_sum + $tok_val" | bc)"
+          time_sum="$(echo "$time_sum + $time_val" | bc)"
+          count="$(( count + 1 ))"
+          if [[ -z "$m_params" ]]; then
+            m_params="$(jq -r '.model_info.parameter_size' "$f")"
+            m_quant="$(jq -r '.model_info.quantization_level' "$f")"
+          fi
+        fi
+      done
+      if [[ "$count" -gt 0 ]]; then
+        avg_tok="$(echo "scale=2; $tok_sum / $count" | bc)"
+        avg_time="$(echo "scale=2; $time_sum / $count" | bc)"
+        leaderboard_lines+=("${avg_tok}|${m}|${m_params}|${m_quant}|${avg_tok}|${avg_time}")
+      fi
+    done
+
+    # Sort by avg tok/s descending
+    local sorted_lines=()
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && sorted_lines+=("$line")
+    done < <(printf "%s\n" "${leaderboard_lines[@]}" | sort -t'|' -k1 -rn)
+
+    local medals=("🥇" "🥈" "🥉")
+
+    echo "## Results Summary" >> "$report_file"
+    echo "" >> "$report_file"
+    echo "Ranked by median eval tokens/sec (averaged across all benchmarks)." >> "$report_file"
+    echo "" >> "$report_file"
+    echo "| Rank | Model | Params | Quant | Avg tok/s | Avg Total Time |" >> "$report_file"
+    echo "|:---:|:---|---:|:---|---:|---:|" >> "$report_file"
+
+    rank=1
+    fastest_tok=""
+    slowest_tok=""
+    fastest_name=""
+    slowest_name=""
+    for line in "${sorted_lines[@]}"; do
+      IFS='|' read -r _ l_model l_params l_quant l_tok l_time <<< "$line"
+      medal="${medals[$((rank-1))]:-$rank}"
+      echo "| $medal | \`$l_model\` | $l_params | $l_quant | $l_tok tok/s | ${l_time}s |" >> "$report_file"
+      if [[ $rank -eq 1 ]]; then
+        fastest_tok="$l_tok"
+        fastest_name="$l_model"
+      fi
+      slowest_tok="$l_tok"
+      slowest_name="$l_model"
+      rank=$(( rank + 1 ))
+    done
+
+    echo "" >> "$report_file"
+
+    # Relative performance
+    if [[ -n "$fastest_tok" && -n "$slowest_tok" && "$slowest_tok" != "0" && ${#sorted_lines[@]} -gt 1 ]]; then
+      speedup="$(echo "scale=2; $fastest_tok / $slowest_tok" | bc)"
+      echo "**Relative:** \`$fastest_name\` is **${speedup}x faster** than \`$slowest_name\` (avg eval tok/s)" >> "$report_file"
+      echo "" >> "$report_file"
+    fi
+
+    echo "---" >> "$report_file"
+    echo "" >> "$report_file"
+  fi
+
+  # ── Per-Benchmark Sections ──
+  for b in "${benches[@]}"; do
+    # Read config if available
+    config_file="$BENCHMARKS_DIR/$b/config.json"
+    config_str=""
+    if [[ -f "$config_file" ]]; then
+      c_seed="$(jq -r '.seed // empty' "$config_file" 2>/dev/null)"
+      c_temp="$(jq -r '.temperature // empty' "$config_file" 2>/dev/null)"
+      c_pred="$(jq -r '.num_predict // empty' "$config_file" 2>/dev/null)"
+      c_ctx="$(jq -r '.num_ctx // empty' "$config_file" 2>/dev/null)"
+      config_str="seed=${c_seed:-$DEFAULT_SEED} temp=${c_temp:-$DEFAULT_TEMPERATURE} predict=${c_pred:-$DEFAULT_NUM_PREDICT} ctx=${c_ctx:-$DEFAULT_NUM_CTX}"
+    else
+      config_str="seed=$DEFAULT_SEED temp=$DEFAULT_TEMPERATURE predict=$DEFAULT_NUM_PREDICT ctx=$DEFAULT_NUM_CTX"
+    fi
+
+    # Get iterations from first summary
+    iters=""
+    for f in "${summary_files[@]}"; do
+      if [[ "$f" == *"/$b/"* ]]; then
+        iters="$(jq -r '.iterations' "$f")"
+        break
+      fi
+    done
+
+    echo "## Benchmark: \`$b\`" >> "$report_file"
+    echo "" >> "$report_file"
+    echo "> \`$config_str\` • ${iters} iterations" >> "$report_file"
+    echo "" >> "$report_file"
+    
+    echo "| Model | Eval tok/s | Prompt tok/s | Eval Time | Total Time |" >> "$report_file"
+    echo "|:---|---:|---:|---:|---:|" >> "$report_file"
+    
+    local models=() toks_data=() time_data=()
+
+    for f in "${summary_files[@]}"; do
+      if [[ "$f" == *"/$b/"* ]]; then
+        model_name="$(basename "$(dirname "$f")" | sed 's/_/:/g')"
+        
+        tok_s="$(jq -r '.eval_tokens_per_sec.median | . * 100 | round / 100' "$f")"
+        prompt_tps="$(jq -r '.prompt_eval_tokens_per_sec.median | . * 100 | round / 100' "$f")"
+        eval_t="$(jq -r '.eval_duration_sec.median | . * 100 | round / 100' "$f")"
+        total_t="$(jq -r '.total_duration_sec.median | . * 100 | round / 100' "$f")"
+        
+        echo "| \`$model_name\` | $tok_s | $prompt_tps | ${eval_t}s | ${total_t}s |" >> "$report_file"
+        
+        models+=("\"$model_name\"")
+        toks_data+=("$tok_s")
+        time_data+=("$total_t")
+      fi
+    done
+    
+    # Per-benchmark charts
+    if [[ ${#models[@]} -gt 0 ]]; then
+      pb_x_str="[$(IFS=, ; echo "${models[*]}")]"
+      pb_toks_str="[$(IFS=, ; echo "${toks_data[*]}")]"
+
+      # Compute y-axis upper bound (max + 20% headroom)
+      max_tok="0"
+      for v in "${toks_data[@]}"; do
+        if (( $(echo "$v > $max_tok" | bc -l) )); then max_tok="$v"; fi
+      done
+      y_max="$(echo "scale=0; ($max_tok * 1.2 + 0.5) / 1" | bc)"
+
+      echo "" >> "$report_file"
+      echo '```mermaid' >> "$report_file"
+      echo "xychart-beta" >> "$report_file"
+      echo '  title "Eval Tokens per Second (Higher is Better)"' >> "$report_file"
+      echo "  x-axis $pb_x_str" >> "$report_file"
+      echo "  y-axis \"tok/s\" 0 --> $y_max" >> "$report_file"
+      echo "  bar $pb_toks_str" >> "$report_file"
+      echo '```' >> "$report_file"
+    fi
+    echo "" >> "$report_file"
+  done
+  
+  echo "  ✓ Report generated successfully: $report_file"
+  echo ""
+}
+
 # ── Parse arguments ────────────────────────────────────────────
 BENCH_FILTER=""
 ITERATIONS="$DEFAULT_ITERATIONS"
 DO_WARMUP=true
 MODELS=()
+REPORT_ONLY=false
+REPORT_TARGET=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --host)          OLLAMA_HOST="$2"; shift 2 ;;
     -b|--bench)      BENCH_FILTER="$2"; shift 2 ;;
     -n|--iterations) ITERATIONS="$2"; shift 2 ;;
+    -r|--report)     REPORT_TARGET="$2"; REPORT_ONLY=true; shift 2 ;;
     --no-warmup)     DO_WARMUP=false; shift ;;
     -l|--list)       list_benchmarks ;;
     -h|--help)       usage 0 ;;
@@ -315,6 +547,12 @@ while [[ $# -gt 0 ]]; do
     *)               MODELS+=("$1"); shift ;;
   esac
 done
+
+if [[ "$REPORT_ONLY" == true ]]; then
+  [[ -z "$REPORT_TARGET" ]] && { echo "Error: --report requires 'all' or a benchmark name."; exit 1; }
+  generate_markdown_report "$REPORT_TARGET"
+  exit 0
+fi
 
 [[ ${#MODELS[@]} -eq 0 ]] && { echo "Error: no model(s) specified."; usage 1; }
 
@@ -430,4 +668,10 @@ for BENCH_DIR in "${BENCHMARKS[@]}"; do
 done
 
 echo ""
+if [[ -n "$BENCH_FILTER" ]]; then
+  generate_markdown_report "$BENCH_FILTER"
+else
+  generate_markdown_report "all"
+fi
+
 echo "All results saved to $RESULTS_DIR/"
