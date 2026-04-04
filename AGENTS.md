@@ -58,6 +58,7 @@ Commit messages follow the conventional commits style observed in this repo:
 - `fix:` for bug fixes
 
 Keep commits focused on a single logical change. PR descriptions should explain what changed and why.
+Do not add co-author trailers, bot attribution, or extra commit metadata unless the user explicitly asks for it.
 
 ## Adding a Benchmark
 
