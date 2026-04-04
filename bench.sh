@@ -14,24 +14,147 @@ DEFAULT_ITERATIONS=3
 BENCHMARKS_DIR="$SCRIPT_DIR/benchmarks"
 RESULTS_DIR="$SCRIPT_DIR/results"
 
+UI_RESET=""
+UI_BOLD=""
+UI_DIM=""
+UI_CYAN=""
+UI_INFO=""
+UI_OK=""
+UI_WARN=""
+UI_ERROR=""
+UI_ACCENT=""
+UI_RULE="-----------------------------------------------------------------------"
+UI_TTY=false
+SPINNER_PID=""
+SPINNER_FRAMES=("   " ".  " ".. " "...")
+
+init_ui() {
+  if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
+    UI_TTY=true
+    UI_RESET=$'\033[0m'
+    UI_BOLD=$'\033[1m'
+    UI_DIM=$'\033[2m'
+    UI_CYAN=$'\033[38;5;39m'
+    UI_INFO=$'\033[38;5;110m'
+    UI_OK=$'\033[38;5;78m'
+    UI_WARN=$'\033[38;5;221m'
+    UI_ERROR=$'\033[38;5;203m'
+    UI_ACCENT=$'\033[38;5;183m'
+    UI_RULE="───────────────────────────────────────────────────────────────────────"
+    SPINNER_FRAMES=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+  fi
+}
+
+ui_section() {
+  local title="$1"
+  printf "\n%b%s%b\n" "${UI_BOLD}${UI_CYAN}" "$title" "$UI_RESET"
+  printf "%b%s%b\n" "$UI_DIM" "$UI_RULE" "$UI_RESET"
+}
+
+ui_subsection() {
+  local title="$1"
+  printf "\n  %b>%b %b%s%b\n" "$UI_ACCENT" "$UI_RESET" "$UI_BOLD" "$title" "$UI_RESET"
+}
+
+ui_kv() {
+  local label="$1" value="$2"
+  printf "  %b%-12s%b %s\n" "$UI_DIM" "$label" "$UI_RESET" "$value"
+}
+
+ui_status() {
+  local level="$1" message="$2"
+  local label color="" stream=1
+
+  case "$level" in
+    info)  label="info";  color="$UI_INFO" ;;
+    ok)    label="ok";    color="$UI_OK" ;;
+    warn)  label="warn";  color="$UI_WARN";  stream=2 ;;
+    error) label="error"; color="$UI_ERROR"; stream=2 ;;
+    *)     label="$level" ;;
+  esac
+
+  printf "%b[%s]%b %s\n" "${UI_BOLD}${color}" "$label" "$UI_RESET" "$message" >&"$stream"
+}
+
+ui_run_result() {
+  local run_label="$1" eval_tps="$2" total_s="$3"
+  printf "  %brun %-7s%b %10s tok/s   %8ss total\n" "$UI_DIM" "$run_label" "$UI_RESET" "$eval_tps" "$total_s"
+}
+
+run_with_spinner() {
+  local message="$1"
+  shift
+
+  if [[ "$UI_TTY" != true ]]; then
+    "$@"
+    return $?
+  fi
+
+  tput civis 2>/dev/null || true
+  "$@" &
+  local cmd_pid=$!
+  local i=0
+  local n=${#SPINNER_FRAMES[@]}
+
+  while kill -0 "$cmd_pid" 2>/dev/null; do
+    printf "\r  %b%s%b %s " "${UI_BOLD}${UI_CYAN}" "${SPINNER_FRAMES[$((i % n))]}" "$UI_RESET" "$message"
+    i=$(( i + 1 ))
+    sleep 0.08
+  done
+
+  local status=0
+  wait "$cmd_pid" || status=$?
+  printf "\r\033[2K"
+  tput cnorm 2>/dev/null || true
+  return "$status"
+}
+
+run_capture_with_spinner() {
+  local __resultvar="$1"
+  local message="$2"
+  shift 2
+
+  local tmp_file
+  tmp_file="$(mktemp)"
+  local status=0
+
+  run_with_spinner "$message" "$@" > "$tmp_file" || status=$?
+
+  printf -v "$__resultvar" '%s' "$(cat "$tmp_file")"
+  rm -f "$tmp_file"
+  return "$status"
+}
+
+ui_progress_bar() {
+  local current="$1" total="$2" width=20
+  local filled=$(( current * width / total ))
+  local empty=$(( width - filled ))
+  local bar=""
+  local i
+  for (( i = 0; i < filled; i++ )); do bar+="█"; done
+  for (( i = 0; i < empty; i++ )); do bar+="░"; done
+  printf "%b%s%b %b%d/%d%b" "$UI_ACCENT" "$bar" "$UI_RESET" "$UI_DIM" "$current" "$total" "$UI_RESET"
+}
+
 # ── Usage / List ───────────────────────────────────────────────
 
 usage() {
   cat <<EOF
-Usage: $0 [options] <model> [model2 ...]
+${UI_BOLD}ollama-bench${UI_RESET}
 
-Options:
-      --host <url>         Ollama host (default: 127.0.0.1:11434, respects OLLAMA_HOST).
-  -b, --bench <name>       Run a specific benchmark (folder name under benchmarks/).
-                            If omitted, all benchmarks are run.
-  -n, --iterations <N>     Number of timed runs per model (default: $DEFAULT_ITERATIONS).
-  -r, --report <target>    Generate a Markdown report from cached JSON results.
-                            Use 'all' for a global summary or a benchmark name.
-      --no-warmup          Skip the warmup run (not recommended).
-  -l, --list               List available benchmarks and exit.
-  -h, --help               Show this help message.
+Usage
+  $0 [options] <model> [model2 ...]
 
-Examples:
+Options
+      --host <url>         Ollama host (default: 127.0.0.1:11434, respects OLLAMA_HOST)
+  -b, --bench <name>       Run a specific benchmark folder under benchmarks/
+  -n, --iterations <N>     Number of timed runs per model (default: $DEFAULT_ITERATIONS)
+  -r, --report <target>    Generate a Markdown report from cached JSON results
+      --no-warmup          Skip the warmup run
+  -l, --list               List available benchmarks and exit
+  -h, --help               Show this help message
+
+Examples
   $0 qwen3.5:35b-a3b
   $0 -n 5 qwen3.5:35b-a3b qwen3.5:35b-a3b-coding-nvfp4
   $0 -b fastapi-endpoint qwen3.5:35b-a3b
@@ -42,13 +165,17 @@ EOF
 }
 
 list_benchmarks() {
-  echo "Available benchmarks:"
+  ui_section "Available benchmarks"
   for dir in "$BENCHMARKS_DIR"/*/; do
     [[ -d "$dir" ]] || continue
-    local name preview
+    local name preview suffix
     name="$(basename "$dir")"
-    preview="$(head -c 80 "$dir/prompt.txt" 2>/dev/null)" || preview="(no prompt.txt)"
-    echo "  • $name  —  ${preview}…"
+    suffix="..."
+    preview="$(head -c 80 "$dir/prompt.txt" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g; s/[[:space:]]*$//')" || {
+      preview="(no prompt.txt)"
+      suffix=""
+    }
+    printf "  %-20s %s%s\n" "$name" "$preview" "$suffix"
   done
   exit 0
 }
@@ -91,15 +218,12 @@ get_system_info() {
 }
 
 print_system_info() {
-  echo "┌─────────────────────────────────────────────────────────────────────┐"
-  echo "│  System Info                                                      │"
-  echo "├─────────────────────────────────────────────────────────────────────┤"
-  printf "│  %-66s│\n" "Chip:    $(echo "$SYSTEM_INFO_JSON" | jq -r '.chip')"
-  printf "│  %-66s│\n" "Memory:  $(echo "$SYSTEM_INFO_JSON" | jq -r '.memory_gb')GB"
-  printf "│  %-66s│\n" "OS:      $(echo "$SYSTEM_INFO_JSON" | jq -r '.os')"
-  printf "│  %-66s│\n" "Ollama:  $(echo "$SYSTEM_INFO_JSON" | jq -r '.ollama_version')"
-  printf "│  %-66s│\n" "Host:    $(echo "$SYSTEM_INFO_JSON" | jq -r '.hostname')"
-  echo "└─────────────────────────────────────────────────────────────────────┘"
+  ui_section "System"
+  ui_kv "chip" "$(echo "$SYSTEM_INFO_JSON" | jq -r '.chip')"
+  ui_kv "memory" "$(echo "$SYSTEM_INFO_JSON" | jq -r '.memory_gb')GB"
+  ui_kv "os" "$(echo "$SYSTEM_INFO_JSON" | jq -r '.os')"
+  ui_kv "ollama" "$(echo "$SYSTEM_INFO_JSON" | jq -r '.ollama_version')"
+  ui_kv "host" "$(echo "$SYSTEM_INFO_JSON" | jq -r '.hostname')"
 }
 
 # ── Helpers ────────────────────────────────────────────────────
@@ -116,11 +240,11 @@ setup_ollama_urls() {
 }
 
 validate_models() {
-  echo "  📡 Connecting to Ollama at $OLLAMA_HOST..."
+  ui_status info "Connecting to Ollama at $OLLAMA_HOST"
   local tags_response available_models
   
   if ! tags_response="$(curl -s -m 5 "$OLLAMA_TAGS_URL" 2>/dev/null)"; then
-    echo "  ✗ Error: Could not connect to Ollama at $OLLAMA_HOST"
+    ui_status error "Could not connect to Ollama at $OLLAMA_HOST"
     exit 1
   fi
 
@@ -129,21 +253,19 @@ validate_models() {
   for m in "${MODELS[@]}"; do
     # Check exact match or match with :latest
     if ! echo "$available_models" | grep -F -x -q "$m" && ! echo "$available_models" | grep -F -x -q "${m}:latest"; then
-      echo "  ✗ Error: Model '$m' not found on Ollama server. Run: ollama pull $m"
+      ui_status error "Model '$m' not found on Ollama server. Run: ollama pull $m"
       exit 1
     fi
   done
-  echo "  ✓ All requested models are available locally."
-  echo ""
+  ui_status ok "All requested models are available locally"
 }
 
 CURRENT_MODEL=""
 
 cleanup() {
-  echo ""
-  echo "🚨 Script interrupted. Cleaning up..."
+  ui_status warn "Interrupted. Cleaning up"
   if [[ -n "${CURRENT_MODEL:-}" ]]; then
-    echo "    ⏏ Emergency unload: $CURRENT_MODEL"
+    ui_status info "Unloading model: $CURRENT_MODEL"
     unload_model "$CURRENT_MODEL"
   fi
   exit 1
@@ -180,23 +302,23 @@ get_model_metadata() {
 
 warmup_model() {
   local model="$1"
-  echo "    ⏳ Warming up (loading model into memory)..."
   local response
-  response="$(curl -s "$OLLAMA_CHAT_URL" \
-    -H "Content-Type: application/json" \
-    -d "$(jq -n --arg model "$model" '{
-      model: $model,
-      messages: [{ role: "user", content: "hi" }],
-      stream: false,
-      keep_alive: "5m",
-      options: { num_predict: 1 }
-    }')")"
+  run_capture_with_spinner response "Warming up ${UI_BOLD}${model}${UI_RESET}" \
+    curl -s "$OLLAMA_CHAT_URL" \
+      -H "Content-Type: application/json" \
+      -d "$(jq -n --arg model "$model" '{
+        model: $model,
+        messages: [{ role: "user", content: "hi" }],
+        stream: false,
+        keep_alive: "5m",
+        options: { num_predict: 1 }
+      }')"
 
   if echo "$response" | jq -e '.error' >/dev/null 2>&1; then
-    echo "    ✗ Warmup failed: $(echo "$response" | jq -r '.error')"
+    ui_status error "Warmup failed: $(echo "$response" | jq -r '.error')"
     return 1
   fi
-  echo "    ✓ Model loaded"
+  ui_status ok "Model loaded and ready"
 }
 
 unload_model() {
@@ -278,25 +400,25 @@ compute_summary() {
 print_summary() {
   local summary="$1"
 
-  echo ""
-  echo "    ┌────────────────────────┬────────────┬────────────┬────────────┬────────────┐"
-  echo "    │ Metric                 │        Min │     Median │       Mean │        Max │"
-  echo "    ├────────────────────────┼────────────┼────────────┼────────────┼────────────┤"
+  printf "\n  %b>%b %bSummary%b\n" "$UI_ACCENT" "$UI_RESET" "$UI_BOLD" "$UI_RESET"
+  printf "  %b%-20s %10s %10s %10s %10s%b\n" "$UI_DIM" "metric" "min" "median" "mean" "max" "$UI_RESET"
+  printf "  %b%-20s %10s %10s %10s %10s%b\n" "$UI_DIM" "--------------------" "----------" "----------" "----------" "----------" "$UI_RESET"
 
   jq -r '
-    def fmt: . * 100 | round / 100;
-    def row(lbl; obj):
-      "    │ \(lbl)│ \(obj.min | fmt | tostring | ("          " + .)[-10:]) │ \(obj.median | fmt | tostring | ("          " + .)[-10:]) │ \(obj.mean | fmt | tostring | ("          " + .)[-10:]) │ \(obj.max | fmt | tostring | ("          " + .)[-10:]) │";
-
-    row("Eval tok/s              "; .eval_tokens_per_sec),
-    row("Prompt eval tok/s       "; .prompt_eval_tokens_per_sec),
-    row("Eval time (s)           "; .eval_duration_sec),
-    row("Prompt eval time (s)    "; .prompt_eval_duration_sec),
-    row("Load time (s)           "; .load_duration_sec),
-    row("Total time (s)          "; .total_duration_sec)
-  ' "$summary"
-
-  echo "    └────────────────────────┴────────────┴────────────┴────────────┴────────────┘"
+    def fmt: (. * 100 | round / 100 | tostring);
+    [
+      ["eval tok/s", .eval_tokens_per_sec],
+      ["prompt tok/s", .prompt_eval_tokens_per_sec],
+      ["eval time (s)", .eval_duration_sec],
+      ["prompt time (s)", .prompt_eval_duration_sec],
+      ["load time (s)", .load_duration_sec],
+      ["total time (s)", .total_duration_sec]
+    ][]
+    | [.[0], (.[1].min | fmt), (.[1].median | fmt), (.[1].mean | fmt), (.[1].max | fmt)]
+    | @tsv
+  ' "$summary" | while IFS=$'\t' read -r label min median mean max; do
+    printf "  %-20s %b%10s%b %b%10s%b %10s %10s\n" "$label" "$UI_BOLD" "$min" "$UI_RESET" "${UI_BOLD}${UI_ACCENT}" "$median" "$UI_RESET" "$mean" "$max"
+  done
   echo ""
 }
 
@@ -308,10 +430,10 @@ generate_markdown_report() {
   
   if [[ "$target_bench" == "all" ]]; then
     report_file="$RESULTS_DIR/report-global-summary_${timestamp}.md"
-    echo "  Generating global summary report at $report_file..."
+    ui_status info "Generating global summary report at $report_file"
   else
     report_file="$RESULTS_DIR/report-${target_bench}_${timestamp}.md"
-    echo "  Generating report for '$target_bench' at $report_file..."
+    ui_status info "Generating report for '$target_bench' at $report_file"
   fi
 
   # Find available summary files depending on mode
@@ -323,7 +445,7 @@ generate_markdown_report() {
   fi
 
   if [[ ${#summary_files[@]} -eq 0 ]]; then
-    echo "  ⚠ No summary.json files found to generate report."
+    ui_status warn "No summary.json files found to generate report"
     return 1
   fi
 
@@ -410,8 +532,6 @@ EOF
       [[ -n "$line" ]] && sorted_lines+=("$line")
     done < <(printf "%s\n" "${leaderboard_lines[@]}" | sort -t'|' -k1 -rn)
 
-    local medals=("🥇" "🥈" "🥉")
-
     echo "## Results Summary" >> "$report_file"
     echo "" >> "$report_file"
     echo "Ranked by median eval tokens/sec (averaged across all benchmarks)." >> "$report_file"
@@ -426,8 +546,7 @@ EOF
     slowest_name=""
     for line in "${sorted_lines[@]}"; do
       IFS='|' read -r _ l_model l_params l_quant l_tok l_time <<< "$line"
-      medal="${medals[$((rank-1))]:-$rank}"
-      echo "| $medal | \`$l_model\` | $l_params | $l_quant | $l_tok tok/s | ${l_time}s |" >> "$report_file"
+      echo "| $rank | \`$l_model\` | $l_params | $l_quant | $l_tok tok/s | ${l_time}s |" >> "$report_file"
       if [[ $rank -eq 1 ]]; then
         fastest_tok="$l_tok"
         fastest_name="$l_model"
@@ -525,11 +644,12 @@ EOF
     echo "" >> "$report_file"
   done
   
-  echo "  ✓ Report generated successfully: $report_file"
-  echo ""
+  ui_status ok "Report generated successfully: $report_file"
 }
 
 # ── Parse arguments ────────────────────────────────────────────
+init_ui
+
 BENCH_FILTER=""
 ITERATIONS="$DEFAULT_ITERATIONS"
 DO_WARMUP=true
@@ -546,24 +666,24 @@ while [[ $# -gt 0 ]]; do
     --no-warmup)     DO_WARMUP=false; shift ;;
     -l|--list)       list_benchmarks ;;
     -h|--help)       usage 0 ;;
-    -*)              echo "Unknown option: $1"; usage 1 ;;
+    -*)              ui_status error "Unknown option: $1"; usage 1 ;;
     *)               MODELS+=("$1"); shift ;;
   esac
 done
 
 if [[ "$REPORT_ONLY" == true ]]; then
-  [[ -z "$REPORT_TARGET" ]] && { echo "Error: --report requires 'all' or a benchmark name."; exit 1; }
+  [[ -z "$REPORT_TARGET" ]] && { ui_status error "--report requires 'all' or a benchmark name"; exit 1; }
   generate_markdown_report "$REPORT_TARGET"
   exit 0
 fi
 
-[[ ${#MODELS[@]} -eq 0 ]] && { echo "Error: no model(s) specified."; usage 1; }
+[[ ${#MODELS[@]} -eq 0 ]] && { ui_status error "No model(s) specified"; usage 1; }
 
 # ── Collect benchmarks to run ──────────────────────────────────
 BENCHMARKS=()
 if [[ -n "$BENCH_FILTER" ]]; then
   bdir="$BENCHMARKS_DIR/$BENCH_FILTER"
-  [[ -d "$bdir" ]] || { echo "Error: benchmark '$BENCH_FILTER' not found."; exit 1; }
+  [[ -d "$bdir" ]] || { ui_status error "Benchmark '$BENCH_FILTER' not found"; exit 1; }
   BENCHMARKS+=("$bdir")
 else
   for dir in "$BENCHMARKS_DIR"/*/; do
@@ -571,14 +691,13 @@ else
   done
 fi
 
-[[ ${#BENCHMARKS[@]} -eq 0 ]] && { echo "No benchmarks found in $BENCHMARKS_DIR/"; exit 1; }
+[[ ${#BENCHMARKS[@]} -eq 0 ]] && { ui_status error "No benchmarks found in $BENCHMARKS_DIR/"; exit 1; }
 
 setup_ollama_urls
 validate_models
 
 # ── Detect system ──────────────────────────────────────────────
 get_system_info
-echo ""
 print_system_info
 
 # ── Run ────────────────────────────────────────────────────────
@@ -586,7 +705,7 @@ for BENCH_DIR in "${BENCHMARKS[@]}"; do
   BENCH_NAME="$(basename "$BENCH_DIR")"
   PROMPT_FILE="$BENCH_DIR/prompt.txt"
 
-  [[ -f "$PROMPT_FILE" ]] || { echo "⚠  Skipping '$BENCH_NAME': no prompt.txt"; continue; }
+  [[ -f "$PROMPT_FILE" ]] || { ui_status warn "Skipping '$BENCH_NAME': no prompt.txt"; continue; }
 
   # Reset to defaults, then apply per-benchmark overrides
   SEED="$DEFAULT_SEED"
@@ -604,12 +723,9 @@ for BENCH_DIR in "${BENCHMARKS[@]}"; do
 
   PROMPT="$(cat "$PROMPT_FILE")"
 
-  echo ""
-  echo "═══════════════════════════════════════════════════════════════════════"
-  echo "  Benchmark : $BENCH_NAME"
-  echo "  Iterations: $ITERATIONS  (warmup: $DO_WARMUP)"
-  echo "  Options   : seed=$SEED temp=$TEMPERATURE predict=$NUM_PREDICT ctx=$NUM_CTX"
-  echo "═══════════════════════════════════════════════════════════════════════"
+  ui_section "Benchmark: $BENCH_NAME"
+  ui_kv "iterations" "$ITERATIONS (warmup: $DO_WARMUP)"
+  ui_kv "options" "seed=$SEED temp=$TEMPERATURE predict=$NUM_PREDICT ctx=$NUM_CTX"
 
   for MODEL in "${MODELS[@]}"; do
     CURRENT_MODEL="$MODEL"
@@ -621,8 +737,7 @@ for BENCH_DIR in "${BENCHMARKS[@]}"; do
     # Clean previous runs
     rm -f "$OUT_DIR"/run_*.json "$OUT_DIR/summary.json"
 
-    echo ""
-    echo "  ▸ $MODEL"
+    ui_subsection "Model: $MODEL"
     get_model_metadata "$MODEL"
     
     size="$(echo "$MODEL_META_JSON" | jq -r '.parameter_size')"
@@ -637,9 +752,11 @@ for BENCH_DIR in "${BENCHMARKS[@]}"; do
     
     caps="$(echo "$MODEL_META_JSON" | jq -r 'if type == "object" and has("capabilities") and (.capabilities | length > 0) then .capabilities | join(", ") else "none" end')"
     
-    echo "    Info: $size parameters, $quant quantization ($format)"
-    echo "    Architecture: $family  │  Context: $ctx_len  │  Features: $caps"
-    echo "  ──────────────────────────────────────────────"
+    ui_kv "parameters" "$size"
+    ui_kv "format" "$quant ($format)"
+    ui_kv "family" "$family"
+    ui_kv "context" "$ctx_len"
+    ui_kv "features" "$caps"
 
     # Warmup: load model into VRAM before timed runs
     if [[ "$DO_WARMUP" == true ]]; then
@@ -647,21 +764,24 @@ for BENCH_DIR in "${BENCHMARKS[@]}"; do
     fi
 
     # Timed runs (model stays loaded via keep_alive: 5m)
+    echo ""
     for i in $(seq 1 "$ITERATIONS"); do
       OUTPUT_FILE="$OUT_DIR/run_${i}.json"
 
-      run_bench "$MODEL" "$PROMPT" "$OUTPUT_FILE" \
+      run_with_spinner "Running iteration $i/$ITERATIONS" \
+        run_bench "$MODEL" "$PROMPT" "$OUTPUT_FILE" \
         "$SEED" "$TEMPERATURE" "$NUM_PREDICT" "$NUM_CTX"
 
       # Show per-run stats
       eval_tps="$(jq -r '.eval_count / (.eval_duration / 1e9) | . * 100 | round / 100' "$OUTPUT_FILE" 2>/dev/null || echo "?")"
       total_s="$(jq -r '.total_duration / 1e9 | . * 100 | round / 100' "$OUTPUT_FILE" 2>/dev/null || echo "?")"
-      echo "    Run $i/$ITERATIONS  │  ${eval_tps} tok/s  │  ${total_s}s total"
+      printf "  %b%s%b " "$UI_DIM" "run $i/$ITERATIONS" "$UI_RESET"
+      ui_progress_bar "$i" "$ITERATIONS"
+      printf "  %b%s tok/s%b  %b%ss%b\n" "$UI_BOLD" "$eval_tps" "$UI_RESET" "$UI_DIM" "$total_s" "$UI_RESET"
     done
 
     # Unload model to free VRAM for the next one
-    echo "    ⏏ Unloading model..."
-    unload_model "$MODEL"
+    run_with_spinner "Unloading ${UI_BOLD}${MODEL}${UI_RESET}" unload_model "$MODEL"
     CURRENT_MODEL=""
 
     # Compute & display summary
@@ -670,11 +790,10 @@ for BENCH_DIR in "${BENCHMARKS[@]}"; do
   done
 done
 
-echo ""
 if [[ -n "$BENCH_FILTER" ]]; then
   generate_markdown_report "$BENCH_FILTER"
 else
   generate_markdown_report "all"
 fi
 
-echo "All results saved to $RESULTS_DIR/"
+ui_status ok "Results saved to $RESULTS_DIR/"

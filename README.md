@@ -187,5 +187,6 @@ The JSON files are useful if you want to post-process or graph the numbers yours
 - [Ollama](https://ollama.com)
 - `jq`
 - `curl`
+- `bc`
 
 For meaningful comparisons, keep the hardware, backend, and benchmark settings consistent between runs.
