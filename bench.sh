@@ -47,8 +47,8 @@ init_ui() {
 
 ui_section() {
   local title="$1"
-  printf "\n%b%s%b\n" "${UI_BOLD}${UI_CYAN}" "$title" "$UI_RESET"
-  printf "%b%s%b\n" "$UI_DIM" "$UI_RULE" "$UI_RESET"
+  printf "\n%b%s%b\n" "${UI_BOLD}${UI_ACCENT}" "$title" "$UI_RESET"
+  printf "%b%s%b\n" "$UI_ACCENT" "$UI_RULE" "$UI_RESET"
 }
 
 ui_subsection() {
@@ -379,12 +379,55 @@ get_system_info() {
 }
 
 print_system_info() {
-  ui_section "System"
-  ui_kv "chip" "$(echo "$SYSTEM_INFO_JSON" | jq -r '.chip')"
-  ui_kv "memory" "$(echo "$SYSTEM_INFO_JSON" | jq -r '.memory_gb')GB"
-  ui_kv "os" "$(echo "$SYSTEM_INFO_JSON" | jq -r '.os')"
-  ui_kv "ollama" "$(echo "$SYSTEM_INFO_JSON" | jq -r '.ollama_version')"
-  ui_kv "host" "$(echo "$SYSTEM_INFO_JSON" | jq -r '.hostname')"
+  local chip mem os ollama host_name
+  chip="$(echo "$SYSTEM_INFO_JSON" | jq -r '.chip')"
+  mem="$(echo "$SYSTEM_INFO_JSON" | jq -r '.memory_gb')GB"
+  os="$(echo "$SYSTEM_INFO_JSON" | jq -r '.os')"
+  ollama="$(echo "$SYSTEM_INFO_JSON" | jq -r '.ollama_version')"
+  host_name="$(echo "$SYSTEM_INFO_JSON" | jq -r '.hostname')"
+
+  local -a lines=(
+    "$(printf "%-12s %s" "chip" "$chip")"
+    "$(printf "%-12s %s" "memory" "$mem")"
+    "$(printf "%-12s %s" "os" "$os")"
+    "$(printf "%-12s %s" "ollama" "$ollama")"
+    "$(printf "%-12s %s" "host" "$host_name")"
+  )
+
+  # Find the widest line
+  local max_w=0
+  for line in "${lines[@]}"; do
+    local len=${#line}
+    (( len > max_w )) && max_w=$len
+  done
+
+  local inner_w=$(( max_w + 4 ))
+  local border_h border_row
+  border_h=""
+  for (( i = 0; i < inner_w; i++ )); do border_h+="─"; done
+
+  printf "\n"
+
+  if [[ "$UI_TTY" == true ]]; then
+    printf "  %b╭%s╮%b\n" "$UI_ACCENT" "$border_h" "$UI_RESET"
+    printf "  %b│%b  %b%-*s%b  %b│%b\n" "$UI_ACCENT" "$UI_RESET" \
+      "${UI_BOLD}${UI_ACCENT}" "$max_w" "System" "$UI_RESET" "$UI_ACCENT" "$UI_RESET"
+    printf "  %b│%b  %-*s  %b│%b\n" "$UI_ACCENT" "$UI_RESET" "$max_w" "" "$UI_ACCENT" "$UI_RESET"
+    for line in "${lines[@]}"; do
+      local lbl="${line:0:13}" val="${line:13}"
+      printf "  %b│%b  %b%s%b%-*s  %b│%b\n" \
+        "$UI_ACCENT" "$UI_RESET" \
+        "$UI_DIM" "$lbl" "$UI_RESET" \
+        "$(( max_w - 13 ))" "$val" \
+        "$UI_ACCENT" "$UI_RESET"
+    done
+    printf "  %b╰%s╯%b\n" "$UI_ACCENT" "$border_h" "$UI_RESET"
+  else
+    printf "  System\n"
+    for line in "${lines[@]}"; do
+      printf "  %s\n" "$line"
+    done
+  fi
 }
 
 # ── Helpers ────────────────────────────────────────────────────
