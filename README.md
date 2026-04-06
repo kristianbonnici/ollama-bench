@@ -16,6 +16,10 @@ Benchmark Ollama models on **your** prompts, on **your** hardware.
 
 Generic benchmarks tell you which model is fastest on someone else's workload. `ollama-bench` lets you write a prompt that looks like your real work -- a coding task, a review, a translation, an agent loop -- and compare models on exactly that. In under a minute you know which model actually fits your use case.
 
+<p align="center">
+  <img src="assets/demo.gif" alt="ollama-bench demo" width="720">
+</p>
+
 ## Create a Benchmark in Seconds
 
 Drop a prompt into a folder and run it:
