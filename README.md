@@ -1,5 +1,7 @@
 # ollama-bench
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-d7afff.svg)](LICENSE)
+
 `ollama-bench` is a lightweight benchmark harness for comparing Ollama models in terms that actually help you choose what to run day to day. Instead of only telling you that one model is "faster," it helps answer questions like:
 
 - Is this model fast enough for interactive chat?
@@ -53,6 +55,27 @@ Treat these bands as "how it tends to feel" rather than "how every model always 
 - `Backend/runtime`: Ollama, `llama.cpp`, `vLLM`, and ExLlama-class backends can behave very differently on the same hardware and model family.
 - `CPU vs GPU`: CPU inference can be fine for smaller models or background tasks, but larger models often become frustratingly slow for interactive use.
 - `Model architecture`: Two models with similar parameter counts can still perform very differently because of architecture and implementation details.
+
+## Installation
+
+### Prerequisites
+
+- [Ollama](https://ollama.com) running locally or on a reachable host
+- `jq`, `curl`, and `bc` (pre-installed on most macOS/Linux systems)
+
+### Setup
+
+```bash
+git clone https://github.com/kristianbonnici/ollama-bench.git
+cd ollama-bench
+chmod +x bench.sh
+```
+
+Verify it works:
+
+```bash
+./bench.sh --list
+```
 
 ## Quick Start
 
@@ -182,11 +205,16 @@ results/
 
 The JSON files are useful if you want to post-process or graph the numbers yourself later.
 
-## Requirements
+## Contributing
 
-- [Ollama](https://ollama.com)
-- `jq`
-- `curl`
-- `bc`
+Contributions are welcome. To get started:
 
-For meaningful comparisons, keep the hardware, backend, and benchmark settings consistent between runs.
+1. Fork the repository and create a feature branch.
+2. Make your changes, keeping commits focused on a single logical change.
+3. Use conventional commit messages (`feat:`, `fix:`, `docs:`).
+4. Test by running the script against a live Ollama instance and verifying the generated JSON summaries and Markdown reports.
+5. Open a pull request describing what changed and why.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
