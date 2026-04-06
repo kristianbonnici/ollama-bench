@@ -106,13 +106,15 @@ These are starting points. The real value comes from adding prompts that match y
 
 The repo includes [an example report](results/report-global-summary_20260407_003704.md) from a real run comparing four models on both included benchmarks. Browse it to see what the output looks like before running anything yourself.
 
+One especially useful comparison in that report is `qwen3.5:35b-a3b-coding-nvfp4` vs `qwen3.5:35b-a3b`. They are roughly the same size, but the NVFP4 variant is much faster on Apple Silicon in Ollama's newer MLX-powered runtime. Ollama has specifically called out this exact Qwen 3.5 35B A3B NVFP4 vs Q4_K_M comparison in its Apple Silicon MLX preview, with bigger gains on M5-family chips thanks to the new GPU Neural Accelerators. That is exactly why personal benchmarking matters: similar models can behave very differently once quantization format, runtime backend, and your hardware are part of the equation.
+
 Reports are saved under `results/` as JSON summaries and timestamped Markdown files:
 
 ```text
 results/
 ├── report-global-summary_20260407_003704.md
 └── fastapi-endpoint/
-    └── qwen3_32b/
+    └── qwen3.5_35b-a3b/
         ├── run_1.json
         ├── run_2.json
         ├── run_3.json
