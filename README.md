@@ -142,16 +142,6 @@ Defaults are tuned for fair comparison: `temperature=0`, `seed=42`, `num_ctx=819
 - **Context length** -- Longer contexts slow prompt ingestion and increase total latency.
 - **Architecture** -- Two models with the same parameter count can perform very differently.
 
-## Contributing
-
-Contributions are welcome. To get started:
-
-1. Fork the repository and create a feature branch.
-2. Make your changes, keeping commits focused on a single logical change.
-3. Use conventional commit messages (`feat:`, `fix:`, `docs:`).
-4. Test by running the script against a live Ollama instance and verifying the generated JSON summaries and Markdown reports.
-5. Open a pull request describing what changed and why.
-
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
