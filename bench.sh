@@ -126,30 +126,101 @@ run_capture_with_spinner() {
 }
 
 ui_banner() {
-  if [[ "$UI_TTY" == true ]]; then
-    local c="${UI_ACCENT}" b="${UI_BOLD}" d="${UI_DIM}" r="${UI_RESET}"
-    printf "\n"
-    printf "%b" "${b}${c}"
-    cat <<'LOGO'
-         _ _                          _                     _
-   ___  | | | __ _ _ __ ___   __ _   | |__   ___ _ __   ___| |__
-  / _ \ | | |/ _` | '_ ` _ \ / _` |  | '_ \ / _ \ '_ \ / __| '_ \
- | (_) || | | (_| | | | | | | (_| |  | |_) |  __/ | | | (__| | | |
-  \___/ |_|_|\__,_|_| |_| |_|\__,_|  |_.__/ \___|_| |_|\___|_| |_|
-LOGO
-    printf "%b" "$r"
-    printf "\n"
-    local bench_label="${BENCH_FILTER:-all}"
-    printf "  %b%s%b  %bhost%b %s · %bbench%b %s · %bmodels%b %d · %biter%b %d\n" \
-      "$d" "Local LLM benchmark runner" "$r" \
-      "$d" "$r" "$OLLAMA_HOST" \
-      "$d" "$r" "$bench_label" \
-      "$d" "$r" "${#MODELS[@]}" \
-      "$d" "$r" "$ITERATIONS"
-    printf "\n"
-  else
+  if [[ "$UI_TTY" != true ]]; then
     printf "ollama-bench — Local LLM benchmark runner\n"
+    return
   fi
+
+  local r="${UI_RESET}" b="${UI_BOLD}" d="${UI_DIM}"
+  local white=$'\033[97m'
+  local cyan=$'\033[38;5;39m'
+  local purple=$'\033[38;5;183m'
+  local sweep=("$white" "$cyan" "$purple")
+
+  local logo_lines=()
+  logo_lines+=('         _ _                          _                     _')
+  logo_lines+=('   ___  | | | __ _ _ __ ___   __ _   | |__   ___ _ __   ___| |__')
+  logo_lines+=('  / _ \ | | |/ _` | '"'"'_ ` _ \ / _` |  | '"'"'_ \ / _ \ '"'"'_ \ / __| '"'"'_ \')
+  logo_lines+=(' | (_) || | | (_| | | | | | | (_| |  | |_) |  __/ | | | (__| | | |')
+  logo_lines+=('  \___/ |_|_|\__,_|_| |_| |_|\__,_|  |_.__/ \___|_| |_|\___|_| |_|')
+
+  local total=${#logo_lines[@]}
+
+  # Gradient: white -> cool white -> light cyan -> cyan -> sky blue ->
+  #           blue-purple -> lavender -> light purple -> theme purple
+  local gradient=(
+    $'\033[97m'
+    $'\033[38;5;195m'
+    $'\033[38;5;159m'
+    $'\033[38;5;117m'
+    $'\033[38;5;75m'
+    $'\033[38;5;111m'
+    $'\033[38;5;147m'
+    $'\033[38;5;183m'
+  )
+  local ncolors=${#gradient[@]}
+
+  tput civis 2>/dev/null || true
+  printf "\n"
+
+  # Phase 1: fast reveal in white (~0.3s)
+  for (( i = 0; i < total; i++ )); do
+    printf "%b%b%s%b\n" "$b" "$white" "${logo_lines[$i]}" "$r"
+    sleep 0.05
+  done
+  sleep 0.1
+
+  # Phase 2: cascading color wave (~1.8s)
+  local -a line_color=()
+  for (( i = 0; i < total; i++ )); do line_color[$i]=0; done
+
+  local steps=$(( ncolors - 1 + total ))
+  for (( step = 1; step <= steps; step++ )); do
+    printf "\033[%dA" "$total"
+    for (( i = 0; i < total; i++ )); do
+      local target=$(( step - i ))
+      if (( target > 0 && line_color[$i] < ncolors - 1 )); then
+        line_color[$i]=$(( line_color[$i] + 1 ))
+      fi
+      printf "\r%b%b%s%b\033[K\n" "$b" "${gradient[${line_color[$i]}]}" "${logo_lines[$i]}" "$r"
+    done
+    sleep 0.1
+  done
+  sleep 0.15
+
+  # Phase 3: shimmer pulse — briefly brightens back then returns (~0.8s)
+  local shimmer_out=($'\033[38;5;189m' $'\033[38;5;195m' $'\033[97m')
+  local shimmer_in=($'\033[38;5;195m' $'\033[38;5;189m' $'\033[38;5;183m')
+
+  local sc
+  for sc in "${shimmer_out[@]}" "${shimmer_in[@]}"; do
+    printf "\033[%dA" "$total"
+    for (( i = 0; i < total; i++ )); do
+      printf "\r%b%b%s%b\033[K\n" "$b" "$sc" "${logo_lines[$i]}" "$r"
+    done
+    sleep 0.08
+  done
+  sleep 0.15
+
+  # Phase 4: metadata fade-in (~0.4s)
+  printf "\n"
+  local bench_label="${BENCH_FILTER:-all}"
+  local meta
+  meta="$(printf "  Local LLM benchmark runner  host %s · bench %s · models %d · iter %d" \
+    "$OLLAMA_HOST" "$bench_label" "${#MODELS[@]}" "$ITERATIONS")"
+
+  printf "%b%s%b\n" "$d" "$meta" "$r"
+  sleep 0.2
+  printf "\033[1A\r"
+  printf "  %b%s%b  %bhost%b %s · %bbench%b %s · %bmodels%b %d · %biter%b %d\033[K\n" \
+    "$d" "Local LLM benchmark runner" "$r" \
+    "$d" "$r" "$OLLAMA_HOST" \
+    "$d" "$r" "$bench_label" \
+    "$d" "$r" "${#MODELS[@]}" \
+    "$d" "$r" "$ITERATIONS"
+  printf "\n"
+
+  tput cnorm 2>/dev/null || true
 }
 
 ui_progress_bar() {
