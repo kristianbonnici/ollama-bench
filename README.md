@@ -2,68 +2,26 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-d7afff.svg)](LICENSE)
 
-`ollama-bench` is a lightweight benchmark harness for comparing Ollama models in terms that actually help you choose what to run day to day. Instead of only telling you that one model is "faster," it helps answer questions like:
+Benchmark Ollama models on **your** prompts, on **your** hardware.
 
-- Is this model fast enough for interactive chat?
-- Will this quant feel good for coding loops and code review prompts?
-- How much latency am I buying when I increase context, size, or quality?
-- Which model is the best fit for overnight batch jobs vs live agent workflows?
+Generic benchmarks tell you which model is fastest on someone else's workload. `ollama-bench` lets you write a prompt that looks like your real work -- a coding task, a review, a translation, an agent loop -- and compare models on exactly that. In under a minute you know which model actually fits your use case.
 
-It runs realistic prompts, captures Ollama's internal timing metrics, and generates JSON summaries plus Markdown reports with leaderboards and charts.
+## Create a Benchmark in Seconds
 
-## Why This Exists
+Drop a prompt into a folder and run it:
 
-A raw `tok/s` number is only useful if you know what it feels like in practice.
+```bash
+mkdir -p benchmarks/my-task
+echo "Your prompt here..." > benchmarks/my-task/prompt.txt
 
-For local inference, the difference between `7 tok/s` and `25 tok/s` is the difference between "I can tolerate this" and "this feels fluid." The goal of this repo is to make model speed easier to interpret for actual usage: chat, coding, debugging, drafting, and automation.
+./bench.sh -b my-task llama3:8b mistral:7b qwen2:7b
+```
 
-This is not a universal benchmark suite and it does not claim lab-grade rigor. It is a practical comparison tool for your own hardware, your own prompts, and your own tradeoffs.
-
-## What The Numbers Mean
-
-The script records a few core metrics from Ollama's response payloads:
-
-- `Eval tok/s`: Generation throughput for output tokens. This is the main number to watch for perceived responsiveness.
-- `Prompt eval tok/s`: Prompt ingestion throughput. This matters more as prompts and context windows get larger.
-- `Eval time`: Time spent generating the answer tokens.
-- `Total time`: End-to-end request time, including load and prompt processing overhead.
-- `Load time`: Model loading overhead for each run.
-
-For most human-facing workflows, `eval tok/s` is the best primary comparison metric. Prompt speed and total latency still matter, especially for long-context tasks, RAG pipelines, or workflows that repeatedly resend large prompts.
-
-The reports compute min, median, mean, and max. In practice, median is usually the most useful comparison number because it is less distorted by one-off slow runs.
-
-## Usability Thresholds
-
-These are rules of thumb, not hard guarantees. Different models can feel faster or slower than the same `tok/s` number suggests depending on prompt length, backend, hardware, and whether the model fully fits in VRAM.
-
-| Speed (tok/s) | Experience Level    | Best Suited For                                                                                                  |
-| :------------ | :------------------ | :--------------------------------------------------------------------------------------------------------------- |
-| `< 5`         | Background          | Offline batch processing or running massive models overnight. Usually too slow for interactive use.              |
-| `5 - 10`      | Bare Minimum        | Roughly around human reading speed. Usable, but you will feel the model thinking and wait for outputs to finish. |
-| `15 - 30`     | Good / Comfortable  | Interactive chat, standard Q&A, and general reading. The model usually stays ahead of you.                       |
-| `40 - 60`     | Very Fast           | Coding tasks, iterative drafting, debugging loops, and brainstorming where you want fast regenerate cycles.      |
-| `100+`        | Agentic / Real-Time | Automated agents, RAG pipelines, and real-time voice or translation style workloads.                             |
-
-Treat these bands as "how it tends to feel" rather than "how every model always behaves."
-
-## What Affects Speed Most
-
-- `GPU VRAM`: The biggest factor. If the model fits cleanly in VRAM, speed is usually much better. Spilling layers into system RAM hurts throughput hard.
-- `Quantization`: Lower-bit quants like Q4 are often much faster than heavier quants like Q8, usually with a manageable quality tradeoff. Very aggressive quants can get fast but degrade output quality more noticeably.
-- `Context length`: Longer contexts slow inference down. Even if generation speed stays decent, prompt ingestion and total latency can climb quickly.
-- `Backend/runtime`: Ollama, `llama.cpp`, `vLLM`, and ExLlama-class backends can behave very differently on the same hardware and model family.
-- `CPU vs GPU`: CPU inference can be fine for smaller models or background tasks, but larger models often become frustratingly slow for interactive use.
-- `Model architecture`: Two models with similar parameter counts can still perform very differently because of architecture and implementation details.
+That's it. `ollama-bench` runs each model multiple times, collects timing metrics, and generates a Markdown report with leaderboards so you can compare side by side.
 
 ## Installation
 
-### Prerequisites
-
-- [Ollama](https://ollama.com) running locally or on a reachable host
-- `jq`, `curl`, and `bc` (pre-installed on most macOS/Linux systems)
-
-### Setup
+**Prerequisites:** [Ollama](https://ollama.com), `jq`, `curl`, `bc` (pre-installed on most macOS/Linux systems).
 
 ```bash
 git clone https://github.com/kristianbonnici/ollama-bench.git
@@ -77,98 +35,37 @@ Verify it works:
 ./bench.sh --list
 ```
 
-## Quick Start
-
-### 1. Choose the models you want to compare
-
-Pick candidates you would realistically use on your machine, for example different sizes or quants of the same model family.
-
-### 2. Run one benchmark or all benchmarks
+## Usage
 
 ```bash
 # Run all benchmarks against one or more models
-./bench.sh qwen3.5:35b-a3b qwen3.5:35b-a3b-coding-nvfp4
+./bench.sh qwen3:32b codellama:34b
 
-# Run against a remote Ollama server
-./bench.sh --host 192.168.1.100:11434 qwen3.5:35b-a3b
+# Run a specific benchmark
+./bench.sh -b fastapi-endpoint qwen3:32b
 
-# Run a specific benchmark for 5 iterations
-./bench.sh -b fastapi-endpoint -n 5 qwen3.5:35b-a3b
+# More iterations for tighter statistics
+./bench.sh -n 5 qwen3:32b
 
-# List available benchmarks
-./bench.sh --list
+# Benchmark against a remote Ollama server
+./bench.sh --host 192.168.1.100:11434 qwen3:32b
 
-# Generate a Markdown report from cached JSON results without rerunning inference
+# Regenerate reports from cached results (no inference)
 ./bench.sh --report all
 ```
 
-### 3. Inspect the generated summaries
+## Adding Your Own Benchmarks
 
-The script writes per-run JSON, per-model summaries, and timestamped Markdown reports under `results/`.
-
-### 4. Compare across workloads, not just one score
-
-A model that looks great on a short coding prompt may feel worse on long-context review tasks. Compare performance across prompts that resemble your real usage.
-
-## How The Benchmark Works
-
-1. It validates the requested models against the target Ollama server.
-2. It captures system and Ollama version metadata for the run.
-3. It optionally warms the model into memory so timed runs focus on inference rather than cold loading.
-4. It runs each benchmark prompt multiple times and stores the raw Ollama JSON responses.
-5. It computes summary statistics and generates Markdown reports with per-benchmark tables, leaderboards, and charts.
-6. It unloads models between runs to avoid VRAM staying occupied unnecessarily.
-
-The defaults are intentionally stable for comparison:
-
-- `temperature=0`
-- fixed `seed=42`
-- `num_ctx=8192`
-- `num_predict=600`
-- `3` timed iterations by default
-
-That setup is meant to reduce noise so model comparisons are fairer.
-
-## How To Read Reports
-
-The Markdown report is designed to answer two different questions:
-
-- Which model is fastest overall across the available benchmarks?
-- Which model is fastest for this specific workload?
-
-When reading results:
-
-- Start with median `Eval tok/s` for responsiveness.
-- Check `Total time` to spot models that look decent on throughput but still feel slow overall.
-- Check `Prompt eval tok/s` if your real tasks involve large prompts, codebases, or long chat history.
-- Use multiple iterations because single-run results can be noisy.
-- Compare models on the same benchmark settings and host, otherwise the numbers are not meaningfully comparable.
-
-The global report ranks models by median `eval tok/s` averaged across benchmarks. That is useful for a quick leaderboard, but your own prompt mix should still be the final judge.
-
-## Existing Benchmarks
-
-The included benchmarks are small but intentional examples of real work:
-
-- `fastapi-endpoint`: A concise code-generation task that favors practical coding throughput.
-- `debug-async-cache`: A deeper debugging and code-review style prompt with a larger output budget.
-
-They are starting points, not a complete benchmark philosophy. If your real work is long-context editing, RAG, SQL generation, summarization, or agent loops, create prompts that look like those tasks.
-
-Synthetic prompts can be useful for stress tests, but they often fail to capture how a model feels in actual use.
-
-## Adding Your Own Benchmark
-
-Create a new folder under `benchmarks/` with a `prompt.txt`:
+A benchmark is just a folder with a `prompt.txt`:
 
 ```text
 benchmarks/
-└── my-new-bench/
-    ├── prompt.txt          # Required: prompt sent to Ollama
-    └── config.json         # Optional: override default options
+└── my-task/
+    ├── prompt.txt      # Required: the prompt sent to Ollama
+    └── config.json     # Optional: override defaults
 ```
 
-Optional `config.json`:
+Optional `config.json` to tune parameters for a specific benchmark:
 
 ```json
 {
@@ -179,31 +76,69 @@ Optional `config.json`:
 }
 ```
 
-Good benchmark prompts usually:
+**Tips for good benchmarks:**
+- Use a prompt that resembles your actual work.
+- Keep `temperature=0` and a fixed `seed` for reproducible comparisons.
+- Set `num_predict` high enough to expose throughput differences.
 
-- resemble a real task you care about
-- have a stable expected output shape
-- avoid randomness when you want fair comparisons
-- use an output budget large enough to expose throughput differences
+### Included Examples
 
-Keeping `temperature=0` and a fixed `seed` makes comparisons more repeatable. If you do change prompt length, context, or output budget, treat that as a different workload and compare like with like.
+- **`fastapi-endpoint`** -- Write a production FastAPI endpoint. A short code-generation task.
+- **`debug-async-cache`** -- Find and fix bugs in an async Python cache. A longer code-review task (`num_predict=1200`).
 
-## Results Layout
+These are starting points. The real value comes from adding prompts that match your workflow.
 
-Results are saved as timestamped reports plus cached JSON files:
+## Understanding the Results
+
+Reports are saved under `results/` as JSON summaries and timestamped Markdown files:
 
 ```text
 results/
-├── report-fastapi-endpoint_20260403_040127.md
+├── report-global-summary_20260407_000815.md
 └── fastapi-endpoint/
-    └── qwen3.5_35b-a3b/
+    └── qwen3_32b/
         ├── run_1.json
         ├── run_2.json
         ├── run_3.json
         └── summary.json
 ```
 
-The JSON files are useful if you want to post-process or graph the numbers yourself later.
+### Key Metrics
+
+| Metric | What It Tells You |
+| :--- | :--- |
+| **Eval tok/s** | Generation speed. The main number for perceived responsiveness. |
+| **Prompt eval tok/s** | How fast the model ingests your prompt. Matters for long contexts. |
+| **Total time** | End-to-end latency including load and prompt processing. |
+
+Reports show min, median, mean, and max. **Median** is usually the best comparison number -- it ignores one-off outliers.
+
+### Speed Reference
+
+| Speed (tok/s) | Feels Like | Good For |
+| :--- | :--- | :--- |
+| `< 5` | Background | Batch jobs, overnight runs |
+| `5 - 10` | Usable | Tolerable for chat, but you'll wait |
+| `15 - 30` | Comfortable | Interactive chat, Q&A, general use |
+| `40 - 60` | Fast | Coding, iterative drafting, debugging loops |
+| `100+` | Real-time | Agents, RAG pipelines, voice workflows |
+
+## How It Works
+
+1. Validates that all requested models exist on the Ollama server.
+2. Warms each model into memory so timed runs measure inference, not cold loading.
+3. Runs each benchmark prompt multiple times per model, saving raw JSON responses.
+4. Computes summary statistics and generates ranked Markdown reports.
+5. Unloads models between runs to free VRAM.
+
+Defaults are tuned for fair comparison: `temperature=0`, `seed=42`, `num_ctx=8192`, `num_predict=600`, `3` iterations.
+
+## What Affects Speed
+
+- **VRAM** -- If the model fits in GPU memory, expect much better throughput. Spilling to system RAM is a big hit.
+- **Quantization** -- Q4 quants are typically much faster than Q8, with a manageable quality tradeoff.
+- **Context length** -- Longer contexts slow prompt ingestion and increase total latency.
+- **Architecture** -- Two models with the same parameter count can perform very differently.
 
 ## Contributing
 
