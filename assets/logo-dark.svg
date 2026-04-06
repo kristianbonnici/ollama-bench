@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Speed lines -->
+  <g stroke="#d7b0ff" stroke-width="4" stroke-linecap="round">
+    <line x1="20" y1="85" x2="40" y2="85"/>
+    <line x1="10" y1="130" x2="45" y2="130"/>
+    <line x1="25" y1="170" x2="45" y2="170"/>
+  </g>
+  <!-- Headband tails -->
+  <path d="M 62 76 C 45 80, 25 90, 15 75" fill="none" stroke="#d7b0ff" stroke-width="7" stroke-linecap="round"/>
+  <path d="M 62 76 C 40 65, 20 65, 5 55" fill="none" stroke="#d7b0ff" stroke-width="7" stroke-linecap="round"/>
+  <!-- Body and head outline -->
+  <path d="M 55 198 C 45 165, 30 150, 45 125 C 20 100, 30 70, 60 70 C 55 25, 80 25, 85 60 C 100 45, 120 45, 125 60 C 145 20, 165 30, 150 75 C 185 85, 175 125, 145 140 C 165 160, 145 180, 140 198" fill="#0d1117" stroke="#e6edf3" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Headband -->
+  <path d="M 58 75 Q 105 85 152 75" fill="none" stroke="#d7b0ff" stroke-width="11" stroke-linecap="round"/>
+  <!-- Snout -->
+  <ellipse cx="120" cy="112" rx="19" ry="14" fill="#0d1117" stroke="#e6edf3" stroke-width="5.5"/>
+  <!-- Eyes -->
+  <path d="M 74 104 A 6.5 6.5 0 0 1 87 104" fill="none" stroke="#e6edf3" stroke-width="4.5" stroke-linecap="round"/>
+  <path d="M 136 104 A 5 5 0 0 1 146 104" fill="none" stroke="#e6edf3" stroke-width="4.5" stroke-linecap="round"/>
+  <!-- Nose -->
+  <path d="M 117 108 L 122 111 L 125 109.5 M 122 111 L 121 115" stroke="#e6edf3" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- Stopwatch -->
+  <g stroke="#d7b0ff" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 45 135 Q 95 165 145 140" stroke-width="4"/>
+    <g transform="rotate(-12, 95, 166)">
+      <circle cx="95" cy="166" r="14" fill="#0d1117" stroke-width="5"/>
+      <line x1="95" y1="152" x2="95" y2="145" stroke-width="4"/>
+      <line x1="104" y1="156" x2="108" y2="152" stroke-width="3"/>
+      <line x1="95" y1="166" x2="100" y2="161" stroke-width="2.5"/>
+      <circle cx="95" cy="166" r="2" fill="#d7b0ff" stroke="none"/>
+    </g>
+  </g>
+</svg>

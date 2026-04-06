@@ -1,6 +1,16 @@
-# ollama-bench
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.svg">
+    <img src="assets/logo-light.svg" alt="ollama-bench logo" width="160">
+  </picture>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-d7afff.svg)](LICENSE)
+<h1 align="center">ollama-bench</h1>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-d7afff.svg" alt="License: MIT"></a>
+</p>
 
 Benchmark Ollama models on **your** prompts, on **your** hardware.
 
