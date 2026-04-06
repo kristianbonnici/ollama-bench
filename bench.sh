@@ -234,6 +234,69 @@ ui_progress_bar() {
   printf "%b%s%b %b%d/%d%b" "$UI_ACCENT" "$bar" "$UI_RESET" "$UI_DIM" "$current" "$total" "$UI_RESET"
 }
 
+run_with_progress() {
+  local run_idx="$1" run_total="$2"
+  shift 2
+
+  local width=20
+  local label
+  label="$(printf "  %brun %d/%d%b " "$UI_DIM" "$run_idx" "$run_total" "$UI_RESET")"
+
+  if [[ "$UI_TTY" != true ]]; then
+    "$@"
+    return $?
+  fi
+
+  tput civis 2>/dev/null || true
+
+  "$@" &
+  local cmd_pid=$!
+
+  local target=$(( run_idx * width / run_total ))
+  if (( target < 1 )); then target=1; fi
+
+  # Wave colors: dim -> medium -> bright -> peak -> bright -> medium
+  local -a wave_colors=(
+    $'\033[38;5;96m'
+    $'\033[38;5;133m'
+    $'\033[38;5;177m'
+    $'\033[38;5;219m'
+    $'\033[38;5;177m'
+    $'\033[38;5;133m'
+  )
+  local wlen=${#wave_colors[@]}
+  local empty_color=$'\033[38;5;239m'
+  local tick=0
+
+  while kill -0 "$cmd_pid" 2>/dev/null; do
+    local bar=""
+    local i
+    for (( i = 0; i < target; i++ )); do
+      local ci=$(( (i + tick) % wlen ))
+      bar+="${wave_colors[$ci]}█"
+    done
+    for (( i = target; i < width; i++ )); do
+      bar+="${empty_color}░"
+    done
+    printf "\r%s%s%b" "$label" "$bar" "$UI_RESET"
+
+    tick=$(( tick + 1 ))
+    sleep 0.07
+  done
+
+  local status=0
+  wait "$cmd_pid" || status=$?
+
+  local bar="" i
+  for (( i = 0; i < target; i++ )); do bar+="█"; done
+  for (( i = target; i < width; i++ )); do bar+="░"; done
+  printf "\r%s%b%s%b %b%d/%d%b" "$label" "$UI_ACCENT" "$bar" "$UI_RESET" \
+    "$UI_DIM" "$run_idx" "$run_total" "$UI_RESET"
+
+  tput cnorm 2>/dev/null || true
+  return "$status"
+}
+
 # ── Usage / List ───────────────────────────────────────────────
 
 usage() {
@@ -868,15 +931,12 @@ for BENCH_DIR in "${BENCHMARKS[@]}"; do
     for i in $(seq 1 "$ITERATIONS"); do
       OUTPUT_FILE="$OUT_DIR/run_${i}.json"
 
-      run_with_spinner "Running iteration $i/$ITERATIONS" \
+      run_with_progress "$i" "$ITERATIONS" \
         run_bench "$MODEL" "$PROMPT" "$OUTPUT_FILE" \
         "$SEED" "$TEMPERATURE" "$NUM_PREDICT" "$NUM_CTX"
 
-      # Show per-run stats
       eval_tps="$(jq -r '.eval_count / (.eval_duration / 1e9) | . * 100 | round / 100' "$OUTPUT_FILE" 2>/dev/null || echo "?")"
       total_s="$(jq -r '.total_duration / 1e9 | . * 100 | round / 100' "$OUTPUT_FILE" 2>/dev/null || echo "?")"
-      printf "  %b%s%b " "$UI_DIM" "run $i/$ITERATIONS" "$UI_RESET"
-      ui_progress_bar "$i" "$ITERATIONS"
       printf "  %b%s tok/s%b  %b%ss%b\n" "$UI_BOLD" "$eval_tps" "$UI_RESET" "$UI_DIM" "$total_s" "$UI_RESET"
     done
 
