@@ -90,11 +90,13 @@ These are starting points. The real value comes from adding prompts that match y
 
 ## Understanding the Results
 
+The repo includes [an example report](results/report-global-summary_20260407_003704.md) from a real run comparing four models on both included benchmarks. Browse it to see what the output looks like before running anything yourself.
+
 Reports are saved under `results/` as JSON summaries and timestamped Markdown files:
 
 ```text
 results/
-├── report-global-summary_20260407_000815.md
+├── report-global-summary_20260407_003704.md
 └── fastapi-endpoint/
     └── qwen3_32b/
         ├── run_1.json
