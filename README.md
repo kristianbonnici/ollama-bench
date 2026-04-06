@@ -28,7 +28,7 @@ Drop a prompt into a folder and run it:
 mkdir -p benchmarks/my-task
 echo "Your prompt here..." > benchmarks/my-task/prompt.txt
 
-./bench.sh -b my-task llama3:8b mistral:7b qwen2:7b
+./bench.sh -b my-task qwen3.5:35b-a3b qwen3-coder:30b
 ```
 
 That's it. `ollama-bench` runs each model multiple times, collects timing metrics, and generates a Markdown report with leaderboards so you can compare side by side.
@@ -53,16 +53,16 @@ Verify it works:
 
 ```bash
 # Run all benchmarks against one or more models
-./bench.sh qwen3:32b codellama:34b
+./bench.sh qwen3.5:35b-a3b qwen3-coder:30b
 
 # Run a specific benchmark
-./bench.sh -b fastapi-endpoint qwen3:32b
+./bench.sh -b fastapi-endpoint qwen3.5:35b-a3b
 
 # More iterations for tighter statistics
-./bench.sh -n 5 qwen3:32b
+./bench.sh -n 5 qwen3.5:35b-a3b
 
 # Benchmark against a remote Ollama server
-./bench.sh --host 192.168.1.100:11434 qwen3:32b
+./bench.sh --host 192.168.1.100:11434 qwen3.5:35b-a3b
 
 # Regenerate reports from cached results (no inference)
 ./bench.sh --report all
