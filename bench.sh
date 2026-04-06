@@ -125,6 +125,33 @@ run_capture_with_spinner() {
   return "$status"
 }
 
+ui_banner() {
+  if [[ "$UI_TTY" == true ]]; then
+    local c="${UI_ACCENT}" b="${UI_BOLD}" d="${UI_DIM}" r="${UI_RESET}"
+    printf "\n"
+    printf "%b" "${b}${c}"
+    cat <<'LOGO'
+         _ _                          _                     _
+   ___  | | | __ _ _ __ ___   __ _   | |__   ___ _ __   ___| |__
+  / _ \ | | |/ _` | '_ ` _ \ / _` |  | '_ \ / _ \ '_ \ / __| '_ \
+ | (_) || | | (_| | | | | | | (_| |  | |_) |  __/ | | | (__| | | |
+  \___/ |_|_|\__,_|_| |_| |_|\__,_|  |_.__/ \___|_| |_|\___|_| |_|
+LOGO
+    printf "%b" "$r"
+    printf "\n"
+    local bench_label="${BENCH_FILTER:-all}"
+    printf "  %b%s%b  %bhost%b %s · %bbench%b %s · %bmodels%b %d · %biter%b %d\n" \
+      "$d" "Local LLM benchmark runner" "$r" \
+      "$d" "$r" "$OLLAMA_HOST" \
+      "$d" "$r" "$bench_label" \
+      "$d" "$r" "${#MODELS[@]}" \
+      "$d" "$r" "$ITERATIONS"
+    printf "\n"
+  else
+    printf "ollama-bench — Local LLM benchmark runner\n"
+  fi
+}
+
 ui_progress_bar() {
   local current="$1" total="$2" width=20
   local filled=$(( current * width / total ))
@@ -692,6 +719,8 @@ else
 fi
 
 [[ ${#BENCHMARKS[@]} -eq 0 ]] && { ui_status error "No benchmarks found in $BENCHMARKS_DIR/"; exit 1; }
+
+ui_banner
 
 setup_ollama_urls
 validate_models
