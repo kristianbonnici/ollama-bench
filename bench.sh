@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+VERSION="0.2.0"
+
 # ── Defaults ───────────────────────────────────────────────────
 OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
 DEFAULT_SEED=42
@@ -314,6 +316,7 @@ Options
       --no-warmup          Skip the warmup run
   -l, --list               List available benchmarks and exit
   -h, --help               Show this help message
+  -v, --version            Show version information
 
 Examples
   $0 qwen3.5:35b-a3b
@@ -593,7 +596,7 @@ compute_summary() {
       prompt_eval_tokens_per_sec: stats(.prompt_eval_count / (.prompt_eval_duration / 1e9)),
       eval_duration_sec:       stats(.eval_duration / 1e9),
       prompt_eval_duration_sec: stats(.prompt_eval_duration / 1e9),
-      ttft_sec:                stats((.load_duration + .prompt_eval_duration) / 1e9),
+      ttft_sec:                stats(.prompt_eval_duration / 1e9),
       load_duration_sec:       stats(.load_duration / 1e9),
       total_duration_sec:      stats(.total_duration / 1e9),
       avg_eval_count:          ([.[] | .eval_count] | add / length),
@@ -917,6 +920,7 @@ while [[ $# -gt 0 ]]; do
     -r|--report)     REPORT_TARGET="$2"; REPORT_ONLY=true; shift 2 ;;
     --no-warmup)     DO_WARMUP=false; shift ;;
     -l|--list)       list_benchmarks ;;
+    -v|--version)    echo "ollama-bench $VERSION"; exit 0 ;;
     -h|--help)       usage 0 ;;
     -*)              ui_status error "Unknown option: $1"; usage 1 ;;
     *)               MODELS+=("$1"); shift ;;
