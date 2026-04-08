@@ -104,7 +104,7 @@ These are starting points. The real value comes from adding prompts that match y
 
 ## Understanding the Results
 
-The repo includes [an example report](results/report-global-summary_20260407_003704.md) from a real run comparing four models on both included benchmarks. Browse it to see what the output looks like before running anything yourself.
+The repo includes [an example report](results/report-global-summary_example.md) from a real run comparing three models on both included benchmarks. Browse it to see what the output looks like before running anything yourself.
 
 One especially useful comparison in that report is `qwen3.5:35b-a3b-coding-nvfp4` vs `qwen3.5:35b-a3b`. They are roughly the same size, but the NVFP4 variant is much faster on Apple Silicon in Ollama's newer MLX-powered runtime. Ollama has specifically called out this exact Qwen 3.5 35B A3B NVFP4 vs Q4_K_M comparison in its Apple Silicon MLX preview, with bigger gains on M5-family chips thanks to the new GPU Neural Accelerators. That is exactly why personal benchmarking matters: similar models can behave very differently once quantization format, runtime backend, and your hardware are part of the equation.
 
@@ -112,7 +112,7 @@ Reports are saved under `results/` as JSON summaries and timestamped Markdown fi
 
 ```text
 results/
-├── report-global-summary_20260407_003704.md
+├── report-global-summary_example.md
 └── fastapi-endpoint/
     └── qwen3.5_35b-a3b/
         ├── run_1.json
@@ -125,7 +125,8 @@ results/
 
 | Metric | What It Tells You |
 | :--- | :--- |
-| **Eval tok/s** | Generation speed. The main number for perceived responsiveness. |
+| **TTFT** | Time To First Token. The main number for perceived responsiveness and how fast the model starts answering. |
+| **Eval tok/s** | Generation throughput speed. Important for long generations. |
 | **Prompt eval tok/s** | How fast the model ingests your prompt. Matters for long contexts. |
 | **Total time** | End-to-end latency including load and prompt processing. |
 

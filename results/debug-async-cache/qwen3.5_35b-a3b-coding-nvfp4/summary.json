@@ -1,0 +1,67 @@
+{
+  "system": {
+    "chip": "Apple M5 Pro",
+    "memory_gb": 64,
+    "os": "macOS 26.4",
+    "ollama_version": "0.20.2",
+    "hostname": "local-machine"
+  },
+  "model_info": {
+    "parameter_size": "35.1B",
+    "quantization_level": "nvfp4",
+    "family": "qwen3_5_moe",
+    "format": "safetensors",
+    "context_length": 262144,
+    "capabilities": [
+      "completion",
+      "vision",
+      "thinking",
+      "tools"
+    ]
+  },
+  "iterations": 3,
+  "eval_tokens_per_sec": {
+    "min": 69.8529862153819,
+    "max": 71.0971488571064,
+    "mean": 70.39914188609067,
+    "median": 70.24729058578374
+  },
+  "prompt_eval_tokens_per_sec": {
+    "min": 739.245864556501,
+    "max": 21516.823519473557,
+    "mean": 11471.229478638314,
+    "median": 12157.61905188488
+  },
+  "eval_duration_sec": {
+    "min": 16.878313959,
+    "max": 17.178936292,
+    "mean": 17.046586542,
+    "median": 17.082509375
+  },
+  "prompt_eval_duration_sec": {
+    "min": 0.028256959,
+    "max": 0.822459792,
+    "mean": 0.300242181,
+    "median": 0.050009792
+  },
+  "ttft_sec": {
+    "min": 0.054302167,
+    "max": 0.852416,
+    "mean": 0.3262676253333333,
+    "median": 0.072084709
+  },
+  "load_duration_sec": {
+    "min": 0.022074917,
+    "max": 0.029956208,
+    "mean": 0.02602544433333333,
+    "median": 0.026045208
+  },
+  "total_duration_sec": {
+    "min": 17.15572075,
+    "max": 17.73175175,
+    "mean": 17.373777097333335,
+    "median": 17.233858792
+  },
+  "avg_eval_count": 1200,
+  "avg_prompt_eval_count": 608
+}

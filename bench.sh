@@ -593,6 +593,7 @@ compute_summary() {
       prompt_eval_tokens_per_sec: stats(.prompt_eval_count / (.prompt_eval_duration / 1e9)),
       eval_duration_sec:       stats(.eval_duration / 1e9),
       prompt_eval_duration_sec: stats(.prompt_eval_duration / 1e9),
+      ttft_sec:                stats((.load_duration + .prompt_eval_duration) / 1e9),
       load_duration_sec:       stats(.load_duration / 1e9),
       total_duration_sec:      stats(.total_duration / 1e9),
       avg_eval_count:          ([.[] | .eval_count] | add / length),
@@ -609,12 +610,13 @@ print_summary() {
   printf "  %b%-20s %10s %10s %10s %10s%b\n" "$UI_DIM" "--------------------" "----------" "----------" "----------" "----------" "$UI_RESET"
 
   jq -r '
-    def fmt: (. * 100 | round / 100 | tostring);
+    def fmt: (. * 100 | round / 100 | tostring | if startswith(".") then "0" + . else . end);
     [
       ["eval tok/s", .eval_tokens_per_sec],
       ["prompt tok/s", .prompt_eval_tokens_per_sec],
       ["eval time (s)", .eval_duration_sec],
       ["prompt time (s)", .prompt_eval_duration_sec],
+      ["ttft (s)", .ttft_sec],
       ["load time (s)", .load_duration_sec],
       ["total time (s)", .total_duration_sec]
     ][]
@@ -707,6 +709,8 @@ EOF
       safe_m="$(echo "$m" | sed 's/:/_/g' | sed 's/\//-/g')"
       tok_sum="0"
       time_sum="0"
+      ttft_sum="0"
+
       count="0"
       m_params=""
       m_quant=""
@@ -715,6 +719,9 @@ EOF
           tok_val="$(jq -r '.eval_tokens_per_sec.median' "$f")"
           time_val="$(jq -r '.total_duration_sec.median' "$f")"
           tok_sum="$(echo "$tok_sum + $tok_val" | bc)"
+          ttft_val="$(jq -r '.ttft_sec.median // 0' "$f")"
+          ttft_sum="$(echo "$ttft_sum + $ttft_val" | bc)"
+
           time_sum="$(echo "$time_sum + $time_val" | bc)"
           count="$(( count + 1 ))"
           if [[ -z "$m_params" ]]; then
@@ -725,8 +732,10 @@ EOF
       done
       if [[ "$count" -gt 0 ]]; then
         avg_tok="$(echo "scale=2; $tok_sum / $count" | bc)"
+        avg_ttft="$(echo "scale=2; $ttft_sum / $count" | bc)"
+
         avg_time="$(echo "scale=2; $time_sum / $count" | bc)"
-        leaderboard_lines+=("${avg_tok}|${m}|${m_params}|${m_quant}|${avg_tok}|${avg_time}")
+        leaderboard_lines+=("${avg_tok}|${m}|${m_params}|${m_quant}|${avg_tok}|${avg_ttft}|${avg_time}")
       fi
     done
 
@@ -736,12 +745,17 @@ EOF
       [[ -n "$line" ]] && sorted_lines+=("$line")
     done < <(printf "%s\n" "${leaderboard_lines[@]}" | sort -t'|' -k1 -rn)
 
-    echo "## Results Summary" >> "$report_file"
+    echo "## Results Summary
+
+Metric definitions:
+- **TTFT**: Time To First Token (responsiveness)
+- **Eval tok/s**: Generation throughput speed
+- **Total Time**: End-to-end execution time" >> "$report_file"
     echo "" >> "$report_file"
     echo "Ranked by median eval tokens/sec (averaged across all benchmarks)." >> "$report_file"
     echo "" >> "$report_file"
-    echo "| Rank | Model | Params | Quant | Avg tok/s | Avg Total Time |" >> "$report_file"
-    echo "|:---:|:---|---:|:---|---:|---:|" >> "$report_file"
+    echo "| Rank | Model | Params | Quant | Avg tok/s | Avg TTFT | Avg Total Time |" >> "$report_file"
+    echo "|:---:|:---|---:|:---|---:|---:|---:|" >> "$report_file"
 
     rank=1
     fastest_tok=""
@@ -749,8 +763,9 @@ EOF
     fastest_name=""
     slowest_name=""
     for line in "${sorted_lines[@]}"; do
-      IFS='|' read -r _ l_model l_params l_quant l_tok l_time <<< "$line"
-      echo "| $rank | \`$l_model\` | $l_params | $l_quant | $l_tok tok/s | ${l_time}s |" >> "$report_file"
+      IFS='|' read -r _ l_model l_params l_quant l_tok l_ttft l_time <<< "$line"
+      l_ttft_fmt=$(echo "$l_ttft" | awk '{printf "%0.2f", $1}')
+      echo "| $rank | \`$l_model\` | $l_params | $l_quant | $l_tok tok/s | ${l_ttft_fmt}s | ${l_time}s |" >> "$report_file"
       if [[ $rank -eq 1 ]]; then
         fastest_tok="$l_tok"
         fastest_name="$l_model"
@@ -760,7 +775,36 @@ EOF
       rank=$(( rank + 1 ))
     done
 
+    
+    # Sort by avg TTFT ascending for secondary leaderboard
+    local sorted_ttft_lines=()
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && sorted_ttft_lines+=("$line")
+    done < <(printf "%s\n" "${leaderboard_lines[@]}" | sort -t'|' -k6 -n)
+
+    echo "### TTFT Leaderboard" >> "$report_file"
     echo "" >> "$report_file"
+    echo "Ranked by median Time To First Token (TTFT), averaged across all benchmarks." >> "$report_file"
+    echo "" >> "$report_file"
+    echo "| Rank | Model | Params | Quant | Avg TTFT | Avg tok/s | Avg Total Time |" >> "$report_file"
+    echo "|:---:|:---|---:|:---|---:|---:|---:|" >> "$report_file"
+
+    rank=1
+    fastest_ttft=""
+    fastest_ttft_name=""
+    for line in "${sorted_ttft_lines[@]}"; do
+      IFS='|' read -r _ l_model l_params l_quant l_tok l_ttft l_time <<< "$line"
+      l_ttft_fmt=$(echo "$l_ttft" | awk '{printf "%0.2f", $1}')
+      echo "| $rank | \`$l_model\` | $l_params | $l_quant | ${l_ttft_fmt}s | $l_tok tok/s | ${l_time}s |" >> "$report_file"
+      if [[ $rank -eq 1 ]]; then
+        fastest_ttft="$l_ttft"
+        fastest_ttft_name="$l_model"
+      fi
+      rank=$(( rank + 1 ))
+    done
+
+    echo "" >> "$report_file"
+echo "" >> "$report_file"
 
     # Relative performance
     if [[ -n "$fastest_tok" && -n "$slowest_tok" && "$slowest_tok" != "0" && ${#sorted_lines[@]} -gt 1 ]]; then
@@ -802,8 +846,8 @@ EOF
     echo "> \`$config_str\` • ${iters} iterations" >> "$report_file"
     echo "" >> "$report_file"
     
-    echo "| Model | Eval tok/s | Prompt tok/s | Eval Time | Total Time |" >> "$report_file"
-    echo "|:---|---:|---:|---:|---:|" >> "$report_file"
+    echo "| Model | Eval tok/s | Prompt tok/s | TTFT | Eval Time | Total Time |" >> "$report_file"
+    echo "|:---|---:|---:|---:|---:|---:|" >> "$report_file"
     
     local models=() toks_data=() time_data=()
 
@@ -813,10 +857,14 @@ EOF
         
         tok_s="$(jq -r '.eval_tokens_per_sec.median | . * 100 | round / 100' "$f")"
         prompt_tps="$(jq -r '.prompt_eval_tokens_per_sec.median | . * 100 | round / 100' "$f")"
+        
+
+        ttft_s="$(jq -r '.ttft_sec.median // 0 | . * 100 | round / 100 | tostring | if startswith(".") then "0" + . else . end' "$f")"
+
         eval_t="$(jq -r '.eval_duration_sec.median | . * 100 | round / 100' "$f")"
         total_t="$(jq -r '.total_duration_sec.median | . * 100 | round / 100' "$f")"
         
-        echo "| \`$model_name\` | $tok_s | $prompt_tps | ${eval_t}s | ${total_t}s |" >> "$report_file"
+        echo "| \`$model_name\` | $tok_s | $prompt_tps | ${ttft_s}s | ${eval_t}s | ${total_t}s |" >> "$report_file"
         
         models+=("\"$model_name\"")
         toks_data+=("$tok_s")
