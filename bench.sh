@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-VERSION="0.2.0"
+VERSION="0.2.1"
 
 # ── Defaults ───────────────────────────────────────────────────
 OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
@@ -595,7 +595,6 @@ compute_summary() {
       eval_tokens_per_sec:     stats(.eval_count / (.eval_duration / 1e9)),
       prompt_eval_tokens_per_sec: stats(.prompt_eval_count / (.prompt_eval_duration / 1e9)),
       eval_duration_sec:       stats(.eval_duration / 1e9),
-      prompt_eval_duration_sec: stats(.prompt_eval_duration / 1e9),
       ttft_sec:                stats(.prompt_eval_duration / 1e9),
       load_duration_sec:       stats(.load_duration / 1e9),
       total_duration_sec:      stats(.total_duration / 1e9),
@@ -618,7 +617,6 @@ print_summary() {
       ["eval tok/s", .eval_tokens_per_sec],
       ["prompt tok/s", .prompt_eval_tokens_per_sec],
       ["eval time (s)", .eval_duration_sec],
-      ["prompt time (s)", .prompt_eval_duration_sec],
       ["ttft (s)", .ttft_sec],
       ["load time (s)", .load_duration_sec],
       ["total time (s)", .total_duration_sec]
